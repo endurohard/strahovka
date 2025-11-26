@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Настройки WhatsApp - Сервис напоминаний</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gray-50">
+    <!-- Навигация -->
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between items-center py-4">
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="flex items-center space-x-2 hover:opacity-75">
+                        <i class="fas fa-shield-alt text-blue-600 text-2xl"></i>
+                        <h1 class="text-xl font-bold text-gray-800">Страховка - Напоминания</h1>
+                    </a>
+                    <span class="text-gray-400">→</span>
+                    <span class="text-gray-600">Настройки WhatsApp</span>
+                </div>
+                <div class="flex items-center space-x-6">
+                    <div class="relative">
+                        <button
+                            onclick="toggleUserMenu()"
+                            class="flex items-center space-x-2 hover:bg-gray-100 px-3 py-2 rounded-lg transition"
+                        >
+                            <i class="fas fa-user-circle text-gray-600 text-xl"></i>
+                            <span id="username-display" class="text-sm font-medium text-gray-700">Пользователь</span>
+                            <i class="fas fa-chevron-down text-gray-500 text-xs"></i>
+                        </button>
+
+                        <div id="userMenu" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-2 z-10">
+                            <a href="/" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                                <i class="fas fa-home mr-2"></i> Главная
+                            </a>
+                            <a href="/settings.html" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 bg-gray-50">
+                                <i class="fas fa-cog mr-2"></i> Настройки
+                            </a>
+                            <hr class="my-2">
+                            <a href="#" onclick="logout(); return false;" class="block px-4 py-2 text-sm text-red-600 hover:bg-red-50">
+                                <i class="fas fa-sign-out-alt mr-2"></i> Выход
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Статус WhatsApp -->
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center">
+                        <i class="fas fa-whatsapp text-green-600 text-3xl mr-3"></i>
+                        Статус WhatsApp
+                    </h2>
+
+                    <div class="space-y-4">
+                        <!-- Статус подключения -->
+                        <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                            <div class="flex items-center space-x-3">
+                                <i class="fas fa-circle text-2xl" id="status-icon"></i>
+                                <div>
+                                    <p class="font-semibold text-gray-800" id="status-text">Проверка...</p>
+                                    <p class="text-sm text-gray-600" id="status-description">Получение информации о статусе</p>
+                                </div>
+                            </div>
+                            <button
+                                onclick="refreshStatus()"
+                                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                            >
+                                <i class="fas fa-sync-alt mr-2"></i> Обновить
+                            </button>
+                        </div>
+
+                        <!-- WhatsApp просмотр -->
+                        <div id="qr-section" class="hidden">
+                            <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                                <h3 id="qr-title" class="text-lg font-semibold text-gray-800 mb-4">
+                                    WhatsApp просмотр
+                                </h3>
+                                <div id="qr-code" class="bg-white inline-block p-4 rounded-lg">
+                                    <!-- Скриншот WhatsApp будет здесь -->
+                                </div>
+                                <div id="qr-instructions" class="mt-4 text-left bg-blue-50 p-4 rounded-lg hidden">
+                                    <p class="font-semibold text-blue-900 mb-2">Инструкция:</p>
+                                    <ol class="text-sm text-blue-800 space-y-1">
+                                        <li>1. Откройте WhatsApp на телефоне</li>
+                                        <li>2. Нажмите на три точки (⋮) → "Связанные устройства"</li>
+                                        <li>3. Нажмите "Привязать устройство"</li>
+                                        <li>4. Отсканируйте QR-код выше</li>
+                                    </ol>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Информация о сессии -->
+                        <div id="session-info" class="hidden space-y-3">
+                            <div class="p-4 bg-green-50 border border-green-200 rounded-lg">
+                                <p class="text-sm text-green-800">
+                                    <i class="fas fa-check-circle mr-2"></i>
+                                    WhatsApp успешно подключен и готов к работе
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Действия -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Действия</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <button
+                            onclick="reconnectWhatsApp()"
+                            class="p-4 border-2 border-orange-200 rounded-lg hover:bg-orange-50 transition text-left"
+                        >
+                            <i class="fas fa-redo text-orange-600 text-xl mb-2"></i>
+                            <p class="font-semibold text-gray-800">Переподключить</p>
+                            <p class="text-sm text-gray-600">Обновить подключение WhatsApp</p>
+                        </button>
+
+                        <button
+                            onclick="disconnectWhatsApp()"
+                            class="p-4 border-2 border-red-200 rounded-lg hover:bg-red-50 transition text-left"
+                        >
+                            <i class="fas fa-unlink text-red-600 text-xl mb-2"></i>
+                            <p class="font-semibold text-gray-800">Отключить</p>
+                            <p class="text-sm text-gray-600">Отключить WhatsApp сессию</p>
+                        </button>
+
+                        <button
+                            onclick="sendTestMessage()"
+                            id="test-btn"
+                            class="p-4 border-2 border-blue-200 rounded-lg hover:bg-blue-50 transition text-left"
+                        >
+                            <i class="fas fa-paper-plane text-blue-600 text-xl mb-2"></i>
+                            <p class="font-semibold text-gray-800">Тест отправки</p>
+                            <p class="text-sm text-gray-600">Отправить тестовое сообщение</p>
+                        </button>
+
+                        <button
+                            onclick="viewLogs()"
+                            class="p-4 border-2 border-gray-200 rounded-lg hover:bg-gray-50 transition text-left"
+                        >
+                            <i class="fas fa-file-alt text-gray-600 text-xl mb-2"></i>
+                            <p class="font-semibold text-gray-800">Логи</p>
+                            <p class="text-sm text-gray-600">Просмотр логов WhatsApp</p>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Боковая панель -->
+            <div class="space-y-6">
+                <!-- Информация -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4">
+                        <i class="fas fa-info-circle text-blue-600 mr-2"></i>
+                        Информация
+                    </h3>
+                    <div class="space-y-3 text-sm">
+                        <div class="flex justify-between py-2 border-b">
+                            <span class="text-gray-600">Версия:</span>
+                            <span class="font-semibold">Puppeteer</span>
+                        </div>
+                        <div class="flex justify-between py-2 border-b">
+                            <span class="text-gray-600">Режим:</span>
+                            <span class="font-semibold">headless: true</span>
+                        </div>
+                        <div class="flex justify-between py-2 border-b">
+                            <span class="text-gray-600">Сессия:</span>
+                            <span class="font-mono text-xs">.wwebjs_auth</span>
+                        </div>
+                        <div class="flex justify-between py-2">
+                            <span class="text-gray-600">Timeout:</span>
+                            <span class="font-semibold">120 сек</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Лимиты WhatsApp -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4">
+                        <i class="fas fa-exclamation-triangle text-yellow-600 mr-2"></i>
+                        Лимиты WhatsApp
+                    </h3>
+                    <div class="space-y-3 text-sm">
+                        <div class="p-3 bg-yellow-50 rounded">
+                            <p class="text-yellow-800"><strong>~1000</strong> сообщений/день</p>
+                        </div>
+                        <div class="p-3 bg-yellow-50 rounded">
+                            <p class="text-yellow-800"><strong>3-5 сек</strong> задержка между сообщениями</p>
+                        </div>
+                        <div class="p-3 bg-yellow-50 rounded">
+                            <p class="text-yellow-800"><strong>~50</strong> новых чатов/день</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Документация -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4">
+                        <i class="fas fa-book text-purple-600 mr-2"></i>
+                        Документация
+                    </h3>
+                    <div class="space-y-2">
+                        <a href="#" onclick="showGuide('implementation')" class="block p-2 text-sm text-blue-600 hover:bg-blue-50 rounded">
+                            → Руководство по интеграции
+                        </a>
+                        <a href="#" onclick="showGuide('troubleshooting')" class="block p-2 text-sm text-blue-600 hover:bg-blue-50 rounded">
+                            → Решение проблем
+                        </a>
+                        <a href="#" onclick="showGuide('setup')" class="block p-2 text-sm text-blue-600 hover:bg-blue-50 rounded">
+                            → Инструкция по настройке
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Уведомления -->
+    <div id="notifications" class="fixed bottom-4 right-4 space-y-2 z-50"></div>
+
+    <script src="/settings.js"></script>
+</body>
+</html>

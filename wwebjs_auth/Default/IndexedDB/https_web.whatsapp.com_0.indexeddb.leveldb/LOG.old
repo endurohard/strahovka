@@ -1,0 +1,5 @@
+2025/11/26-23:22:48.675 2a Reusing MANIFEST /app/.wwebjs_auth/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/11/26-23:22:48.705 2a Recovering log #2845
+2025/11/26-23:22:48.779 2a Reusing old log /app/.wwebjs_auth/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/002845.log 
+2025/11/26-23:22:50.659 2b Manual compaction at level-0 from '\x00\xbc\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\xbd\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/11/26-23:23:32.273 29 Manual compaction at level-0 from '\x00\xbd\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\xbe\x00\x00\x00' @ 0 : 0; will stop at (end)

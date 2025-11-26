@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # База данных PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: strahovka-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: strahovka
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Node.js приложение
+  app:
+    build: .
+    container_name: strahovka-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: strahovka
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      EXCEL_FILE_PATH: /data/clients.xlsx
+      API_PORT: 3000
+      TZ: Europe/Moscow
+    volumes:
+      # Директория для Excel файлов
+      - ./data:/data
+      # Сохранение сессии WhatsApp
+      - ./wwebjs_auth:/app/.wwebjs_auth
+      # Кеш WhatsApp
+      - ./wwebjs_cache:/app/.wwebjs_cache
+      # Директория для загрузок
+      - ./uploads:/app/uploads
+    ports:
+      - "3000:3000"
+      - "9222:9222"  # Порт для удаленной отладки Chrome
+    stdin_open: true
+    tty: true
+    security_opt:
+      - seccomp=unconfined  # Необходимо для Puppeteer/Chrome
+    shm_size: '2gb'  # Увеличиваем shared memory для Chrome
+
+volumes:
+  postgres_data:
+    driver: local

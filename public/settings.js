@@ -1,0 +1,428 @@
+const API_BASE = window.location.origin;
+
+let authToken = localStorage.getItem('authToken');
+let statusCheckInterval = null;
+let qrCheckInterval = null;
+
+// Проверка авторизации
+function checkAuth() {
+    if (!authToken) {
+        window.location.href = '/login';
+        return false;
+    }
+    return true;
+}
+
+// Получение headers с токеном
+function getAuthHeaders() {
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+    };
+}
+
+// Выход
+function logout() {
+    fetch(`${API_BASE}/api/logout`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+    }).finally(() => {
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('username');
+        window.location.href = '/login';
+    });
+}
+
+// Загрузка при старте
+document.addEventListener('DOMContentLoaded', () => {
+    if (!checkAuth()) return;
+
+    // Показать имя пользователя
+    const username = localStorage.getItem('username');
+    if (username) {
+        document.getElementById('username-display').textContent = username;
+    }
+
+    // Первичная проверка статуса
+    refreshStatus();
+
+    // Автоматическое обновление статуса каждые 10 секунд
+    statusCheckInterval = setInterval(refreshStatus, 10000);
+});
+
+// Обновить статус WhatsApp
+async function refreshStatus() {
+    try {
+        const res = await fetch(`${API_BASE}/api/whatsapp/status`, {
+            headers: getAuthHeaders()
+        });
+        const data = await res.json();
+
+        console.log('📊 Статус WhatsApp:', data);
+
+        const statusIcon = document.getElementById('status-icon');
+        const statusText = document.getElementById('status-text');
+        const statusDescription = document.getElementById('status-description');
+        const qrSection = document.getElementById('qr-section');
+        const sessionInfo = document.getElementById('session-info');
+        const testBtn = document.getElementById('test-btn');
+
+        if (data.ready) {
+            // WhatsApp подключен
+            statusIcon.className = 'fas fa-circle text-green-500 text-2xl';
+            statusText.textContent = 'Подключено';
+            statusDescription.textContent = 'WhatsApp успешно подключен и готов к работе';
+
+            qrSection.classList.remove('hidden');
+            sessionInfo.classList.remove('hidden');
+            testBtn.disabled = false;
+            testBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            // Скрыть инструкции, изменить заголовок
+            document.getElementById('qr-title').textContent = 'WhatsApp просмотр';
+            document.getElementById('qr-instructions').classList.add('hidden');
+
+            // Показать скриншот WhatsApp
+            displayWhatsAppScreen();
+
+            // Автообновление скриншота каждые 5 секунд
+            if (!qrCheckInterval) {
+                qrCheckInterval = setInterval(() => {
+                    displayWhatsAppScreen();
+                }, 5000);
+            }
+        } else if (data.browserActive) {
+            // Браузер запущен, ожидается авторизация
+            statusIcon.className = 'fas fa-circle text-orange-500 text-2xl';
+            statusText.textContent = 'Ожидание авторизации';
+            statusDescription.textContent = 'Отсканируйте QR код в WhatsApp';
+
+            qrSection.classList.remove('hidden');
+            sessionInfo.classList.add('hidden');
+            testBtn.disabled = true;
+            testBtn.classList.add('opacity-50', 'cursor-not-allowed');
+
+            // Показать инструкции, изменить заголовок
+            document.getElementById('qr-title').textContent = 'Отсканируйте QR-код для подключения';
+            document.getElementById('qr-instructions').classList.remove('hidden');
+
+            // Показать скриншот WhatsApp (с QR кодом)
+            displayWhatsAppScreen();
+
+            // Запустить частую проверку статуса при отображении QR
+            if (!qrCheckInterval) {
+                qrCheckInterval = setInterval(() => {
+                    refreshStatus();
+                    displayWhatsAppScreen();
+                }, 3000);
+            }
+        } else {
+            // WhatsApp инициализируется или отключен
+            statusIcon.className = 'fas fa-circle text-gray-400 text-2xl';
+            statusText.textContent = data.status === 'initializing' ? 'Инициализация...' : 'Не подключено';
+            statusDescription.textContent = data.status === 'initializing'
+                ? 'Подключение к WhatsApp...'
+                : 'WhatsApp не подключен к серверу';
+
+            qrSection.classList.add('hidden');
+            sessionInfo.classList.add('hidden');
+            testBtn.disabled = true;
+            testBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        }
+    } catch (error) {
+        console.error('Ошибка проверки статуса:', error);
+        showNotification('Ошибка проверки статуса WhatsApp', 'error');
+    }
+}
+
+// Отобразить скриншот WhatsApp с QR кодом
+async function displayWhatsAppScreen() {
+    const qrCodeElement = document.getElementById('qr-code');
+
+    // Очистить предыдущий контент
+    qrCodeElement.innerHTML = '<div class="text-center p-4"><i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>';
+
+    try {
+        console.log('📸 Запрос скриншота WhatsApp...');
+
+        // Получаем скриншот через fetch с авторизацией
+        const response = await fetch(`${API_BASE}/api/whatsapp/screenshot?t=${Date.now()}`, {
+            headers: getAuthHeaders()
+        });
+
+        console.log('📸 Ответ получен:', response.status, response.statusText);
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('❌ Ошибка ответа:', errorText);
+            throw new Error(`Ошибка ${response.status}: ${response.statusText}`);
+        }
+
+        // Получаем blob изображения
+        const blob = await response.blob();
+        console.log('📸 Blob получен, размер:', blob.size, 'тип:', blob.type);
+
+        const imageUrl = URL.createObjectURL(blob);
+
+        // Создать изображение скриншота
+        const screenshot = document.createElement('img');
+        screenshot.src = imageUrl;
+        screenshot.alt = 'WhatsApp Web';
+        screenshot.className = 'max-w-full mx-auto rounded-lg shadow-lg';
+        screenshot.style.maxHeight = '600px';
+
+        qrCodeElement.innerHTML = '';
+        qrCodeElement.appendChild(screenshot);
+
+        console.log('✅ Скриншот отображен успешно');
+
+    } catch (error) {
+        console.error('❌ Ошибка загрузки скриншота:', error);
+        qrCodeElement.innerHTML = `
+            <div class="text-center p-4">
+                <i class="fas fa-exclamation-triangle text-yellow-600 text-4xl mb-2"></i>
+                <p class="text-gray-700">Не удалось загрузить изображение WhatsApp</p>
+                <p class="text-gray-500 text-sm mt-2">${error.message}</p>
+            </div>
+        `;
+    }
+}
+
+// Переподключить WhatsApp
+async function reconnectWhatsApp() {
+    if (!confirm('Переподключить WhatsApp? Это может занять некоторое время.')) return;
+
+    try {
+        showNotification('Переподключение WhatsApp...', 'info');
+
+        const res = await fetch(`${API_BASE}/api/whatsapp/reconnect`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+            showNotification('WhatsApp переподключается...', 'success');
+
+            // Запустить частую проверку статуса
+            setTimeout(() => {
+                if (qrCheckInterval) clearInterval(qrCheckInterval);
+                qrCheckInterval = setInterval(refreshStatus, 2000);
+            }, 2000);
+        } else {
+            showNotification(data.error || 'Ошибка переподключения', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка переподключения:', error);
+        showNotification('Ошибка переподключения WhatsApp', 'error');
+    }
+}
+
+// Отключить WhatsApp
+async function disconnectWhatsApp() {
+    if (!confirm('Отключить WhatsApp? Потребуется повторная авторизация через QR код.')) return;
+
+    try {
+        showNotification('Отключение WhatsApp...', 'info');
+
+        const res = await fetch(`${API_BASE}/api/whatsapp/disconnect`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+            showNotification('WhatsApp отключен', 'success');
+            refreshStatus();
+        } else {
+            showNotification(data.error || 'Ошибка отключения', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка отключения:', error);
+        showNotification('Ошибка отключения WhatsApp', 'error');
+    }
+}
+
+// Отправить тестовое сообщение
+async function sendTestMessage() {
+    const phone = prompt('Введите номер телефона (79XXXXXXXXX):');
+
+    if (!phone) return;
+
+    // Валидация номера
+    if (!/^7\d{10}$/.test(phone)) {
+        showNotification('Неверный формат номера. Используйте формат: 79XXXXXXXXX', 'error');
+        return;
+    }
+
+    const message = prompt('Введите сообщение:', 'Это тестовое сообщение от сервиса напоминаний.');
+
+    if (!message) return;
+
+    try {
+        showNotification('Отправка сообщения...', 'info');
+
+        const res = await fetch(`${API_BASE}/api/send-test`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ phone, message })
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+            showNotification('Тестовое сообщение отправлено успешно!', 'success');
+        } else {
+            showNotification(data.error || 'Ошибка отправки', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка отправки:', error);
+        showNotification('Ошибка отправки тестового сообщения', 'error');
+    }
+}
+
+// Просмотр логов
+function viewLogs() {
+    showNotification('Функция просмотра логов в разработке', 'info');
+    // TODO: Реализовать вывод логов WhatsApp
+    // Можно добавить API endpoint для получения последних логов
+}
+
+// Показать руководство
+function showGuide(type) {
+    const guides = {
+        'implementation': {
+            title: 'Руководство по интеграции',
+            content: `
+                <h3 class="font-bold mb-2">Интеграция WhatsApp</h3>
+                <p class="mb-2">Этот сервис использует whatsapp-web.js для интеграции с WhatsApp.</p>
+                <ol class="list-decimal ml-4 space-y-1">
+                    <li>При первом запуске необходимо отсканировать QR код</li>
+                    <li>Сессия сохраняется в папке .wwebjs_auth</li>
+                    <li>При повторном запуске QR код не требуется</li>
+                    <li>Рекомендуется использовать headless: false для надежности</li>
+                </ol>
+            `
+        },
+        'troubleshooting': {
+            title: 'Решение проблем',
+            content: `
+                <h3 class="font-bold mb-2">Частые проблемы</h3>
+                <ul class="list-disc ml-4 space-y-1">
+                    <li><strong>QR код не появляется:</strong> Проверьте логи сервера</li>
+                    <li><strong>Сессия пропала:</strong> Удалите папку .wwebjs_auth и повторите авторизацию</li>
+                    <li><strong>Сообщения не отправляются:</strong> Проверьте формат номера (79XXXXXXXXX)</li>
+                    <li><strong>WhatsApp отключается:</strong> Используйте headless: false</li>
+                </ul>
+            `
+        },
+        'setup': {
+            title: 'Инструкция по настройке',
+            content: `
+                <h3 class="font-bold mb-2">Настройка WhatsApp</h3>
+                <ol class="list-decimal ml-4 space-y-1">
+                    <li>Убедитесь, что WhatsApp установлен на вашем телефоне</li>
+                    <li>Откройте WhatsApp на телефоне</li>
+                    <li>Нажмите на три точки (⋮) в правом верхнем углу</li>
+                    <li>Выберите "Связанные устройства"</li>
+                    <li>Нажмите "Привязать устройство"</li>
+                    <li>Отсканируйте QR код, который появился на этой странице</li>
+                    <li>Дождитесь подключения (статус изменится на "Подключено")</li>
+                </ol>
+            `
+        }
+    };
+
+    const guide = guides[type];
+
+    if (!guide) {
+        showNotification('Руководство не найдено', 'error');
+        return;
+    }
+
+    // Создать модальное окно
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+    modal.innerHTML = `
+        <div class="bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-gray-800">${guide.title}</h2>
+                <button onclick="this.closest('.fixed').remove()" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            <div class="text-gray-700">
+                ${guide.content}
+            </div>
+            <div class="mt-6 flex justify-end">
+                <button onclick="this.closest('.fixed').remove()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    Закрыть
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+}
+
+// Переключение меню пользователя
+function toggleUserMenu() {
+    const menu = document.getElementById('userMenu');
+    menu.classList.toggle('hidden');
+}
+
+// Закрытие меню при клике вне его
+document.addEventListener('click', (e) => {
+    const menu = document.getElementById('userMenu');
+    const button = e.target.closest('button');
+
+    if (menu && !menu.contains(e.target) && (!button || !button.onclick || button.onclick.toString().indexOf('toggleUserMenu') === -1)) {
+        menu.classList.add('hidden');
+    }
+});
+
+// Уведомления
+function showNotification(message, type = 'info') {
+    const container = document.getElementById('notifications');
+    const id = Date.now();
+
+    const colors = {
+        success: 'bg-green-500',
+        error: 'bg-red-500',
+        info: 'bg-blue-500',
+        warning: 'bg-orange-500'
+    };
+
+    const icons = {
+        success: 'fa-check-circle',
+        error: 'fa-times-circle',
+        info: 'fa-info-circle',
+        warning: 'fa-exclamation-triangle'
+    };
+
+    const notification = document.createElement('div');
+    notification.id = `notification-${id}`;
+    notification.className = `${colors[type]} text-white px-6 py-4 rounded-lg shadow-lg flex items-center space-x-3 max-w-md`;
+    notification.innerHTML = `
+        <i class="fas ${icons[type]}"></i>
+        <span class="flex-1">${message}</span>
+        <button onclick="this.parentElement.remove()" class="text-white hover:text-gray-200">
+            <i class="fas fa-times"></i>
+        </button>
+    `;
+
+    container.appendChild(notification);
+
+    setTimeout(() => {
+        const el = document.getElementById(`notification-${id}`);
+        if (el) el.remove();
+    }, 5000);
+}
+
+// Очистка интервалов при уходе со страницы
+window.addEventListener('beforeunload', () => {
+    if (statusCheckInterval) clearInterval(statusCheckInterval);
+    if (qrCheckInterval) clearInterval(qrCheckInterval);
+});

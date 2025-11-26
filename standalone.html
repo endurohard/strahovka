@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сервис напоминаний - Standalone</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gray-50">
+    <div class="max-w-4xl mx-auto p-8">
+        <div class="bg-white rounded-lg shadow-lg p-8">
+            <h1 class="text-3xl font-bold mb-6 text-center">
+                <i class="fas fa-shield-alt text-blue-600"></i>
+                Сервис напоминаний о страховке
+            </h1>
+
+            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-exclamation-triangle text-yellow-400"></i>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm text-yellow-700">
+                            <strong>Статус:</strong> Сервер запущен на порту 3000
+                        </p>
+                        <p class="text-sm text-yellow-700 mt-1">
+                            Попробуйте открыть в браузере:
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-4 mb-6">
+                <div class="bg-blue-50 p-4 rounded">
+                    <h3 class="font-bold mb-2">Вариант 1: localhost</h3>
+                    <a href="http://localhost:3000" target="_blank" class="text-blue-600 underline text-lg">
+                        http://localhost:3000
+                    </a>
+                </div>
+
+                <div class="bg-green-50 p-4 rounded">
+                    <h3 class="font-bold mb-2">Вариант 2: 127.0.0.1</h3>
+                    <a href="http://127.0.0.1:3000" target="_blank" class="text-green-600 underline text-lg">
+                        http://127.0.0.1:3000
+                    </a>
+                </div>
+            </div>
+
+            <div class="border-t pt-6">
+                <h2 class="text-xl font-bold mb-4">🧪 Проверка подключения</h2>
+                <div class="space-x-2">
+                    <button onclick="testConnection('localhost')"
+                            class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                        Тест localhost
+                    </button>
+                    <button onclick="testConnection('127.0.0.1')"
+                            class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                        Тест 127.0.0.1
+                    </button>
+                </div>
+                <div id="result" class="mt-4"></div>
+            </div>
+
+            <div class="border-t mt-6 pt-6">
+                <h2 class="text-xl font-bold mb-4">📋 Инструкции</h2>
+                <ol class="list-decimal list-inside space-y-2 text-gray-700">
+                    <li>Кликните на одну из ссылок выше</li>
+                    <li>Если не открывается, скопируйте адрес и вставьте в браузер</li>
+                    <li>Попробуйте разные браузеры (Chrome, Safari, Firefox)</li>
+                    <li>Используйте кнопки "Тест" для проверки</li>
+                </ol>
+            </div>
+
+            <div class="border-t mt-6 pt-6">
+                <h2 class="text-xl font-bold mb-4">🔧 Если не работает</h2>
+                <div class="bg-gray-50 p-4 rounded">
+                    <p class="text-sm mb-2"><strong>В терминале выполните:</strong></p>
+                    <code class="bg-gray-800 text-white p-2 rounded block">
+                        curl http://127.0.0.1:3000/api/health
+                    </code>
+                    <p class="text-sm mt-2 text-gray-600">
+                        Если увидите JSON с "status":"ok", значит сервер работает
+                    </p>
+                </div>
+
+                <div class="mt-4 space-y-2 text-sm text-gray-600">
+                    <p>• Откройте <strong>TROUBLESHOOTING.md</strong> для подробных инструкций</p>
+                    <p>• Проверьте что порт 3000 не занят другой программой</p>
+                    <p>• Попробуйте перезапустить: <code>npm run demo</code></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function testConnection(host) {
+            const resultDiv = document.getElementById('result');
+            const url = `http://${host}:3000/api/health`;
+
+            resultDiv.innerHTML = `
+                <div class="bg-blue-50 border border-blue-200 p-4 rounded">
+                    <i class="fas fa-spinner fa-spin"></i> Проверка ${host}...
+                </div>
+            `;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                resultDiv.innerHTML = `
+                    <div class="bg-green-50 border border-green-200 p-4 rounded">
+                        <h3 class="font-bold text-green-800 mb-2">
+                            ✅ Подключение успешно!
+                        </h3>
+                        <p class="text-sm">Сервер работает на <strong>${host}:3000</strong></p>
+                        <p class="text-sm mt-2">Статус: ${data.status}</p>
+                        <a href="http://${host}:3000" target="_blank"
+                           class="inline-block mt-3 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                            Открыть веб-интерфейс →
+                        </a>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="bg-red-50 border border-red-200 p-4 rounded">
+                        <h3 class="font-bold text-red-800 mb-2">
+                            ❌ Ошибка подключения
+                        </h3>
+                        <p class="text-sm text-red-700">${error.message}</p>
+                        <p class="text-sm mt-2">Попробуйте другой вариант или проверьте что сервер запущен</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Автоматическая проверка при загрузке
+        window.onload = function() {
+            testConnection('127.0.0.1');
+        };
+    </script>
+</body>
+</html>
