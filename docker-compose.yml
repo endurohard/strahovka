@@ -46,6 +46,8 @@ services:
       - ./wwebjs_cache:/app/.wwebjs_cache
       # Директория для загрузок
       - ./uploads:/app/uploads
+      # Статические файлы (для быстрого обновления без пересборки)
+      - ./public:/app/public
     ports:
       - "3000:3000"
       - "9222:9222"  # Порт для удаленной отладки Chrome
