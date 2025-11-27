@@ -64,11 +64,17 @@ async function checkWhatsAppStatus() {
 
         const statusEl = document.getElementById('whatsapp-status');
         if (data.ready) {
+            // Полностью авторизован и готов
             statusEl.className = 'px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800';
             statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Подключен';
+        } else if (data.browserActive) {
+            // Браузер активен, но не авторизован (ждет QR)
+            statusEl.className = 'px-3 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800';
+            statusEl.innerHTML = '<i class="fas fa-qrcode"></i> Ожидание QR';
         } else {
+            // Полностью отключен
             statusEl.className = 'px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800';
-            statusEl.innerHTML = '<i class="fas fa-times-circle"></i> Не подключен';
+            statusEl.innerHTML = '<i class="fas fa-times-circle"></i> Отключен';
         }
     } catch (error) {
         console.error('Ошибка проверки WhatsApp:', error);
