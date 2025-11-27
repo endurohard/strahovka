@@ -145,11 +145,16 @@ async function displayWhatsAppScreen() {
     try {
         console.log('📸 Запрос скриншота WhatsApp...');
 
-        // Получаем скриншот через fetch с авторизацией
+        // Получаем скриншот через fetch с авторизацией и timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 секунд timeout
+
         const response = await fetch(`${API_BASE}/api/whatsapp/screenshot?t=${Date.now()}`, {
-            headers: getAuthHeaders()
+            headers: getAuthHeaders(),
+            signal: controller.signal
         });
 
+        clearTimeout(timeoutId);
         console.log('📸 Ответ получен:', response.status, response.statusText);
 
         if (!response.ok) {
@@ -178,13 +183,25 @@ async function displayWhatsAppScreen() {
 
     } catch (error) {
         console.error('❌ Ошибка загрузки скриншота:', error);
-        qrCodeElement.innerHTML = `
-            <div class="text-center p-4">
-                <i class="fas fa-exclamation-triangle text-yellow-600 text-4xl mb-2"></i>
-                <p class="text-gray-700">Не удалось загрузить изображение WhatsApp</p>
-                <p class="text-gray-500 text-sm mt-2">${error.message}</p>
-            </div>
-        `;
+
+        // Если это ошибка timeout, показываем специальное сообщение
+        if (error.name === 'AbortError') {
+            qrCodeElement.innerHTML = `
+                <div class="text-center p-4">
+                    <i class="fas fa-clock text-orange-600 text-4xl mb-2"></i>
+                    <p class="text-gray-700">Timeout: не удалось получить скриншот</p>
+                    <p class="text-gray-500 text-sm mt-2">Попробуйте обновить страницу</p>
+                </div>
+            `;
+        } else {
+            qrCodeElement.innerHTML = `
+                <div class="text-center p-4">
+                    <i class="fas fa-exclamation-triangle text-yellow-600 text-4xl mb-2"></i>
+                    <p class="text-gray-700">Не удалось загрузить изображение WhatsApp</p>
+                    <p class="text-gray-500 text-sm mt-2">${error.message}</p>
+                </div>
+            `;
+        }
     }
 }
 

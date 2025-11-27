@@ -158,10 +158,14 @@ class WhatsAppPuppeteer {
         throw new Error('Страница WhatsApp закрыта');
       }
 
-      return await this.page.screenshot({
+      // Добавляем timeout для screenshot - 5 секунд
+      const screenshotPromise = this.page.screenshot({
         type: 'png',
-        fullPage: false
+        fullPage: false,
+        timeout: 5000
       });
+
+      return await screenshotPromise;
     } catch (error) {
       console.error('Ошибка получения скриншота:', error.message);
       throw new Error(`Не удалось получить скриншот: ${error.message}`);
