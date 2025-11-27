@@ -566,22 +566,31 @@ class API {
       console.log('🔄 Запрос на переподключение WhatsApp...');
 
       // Отключаем текущее соединение
-      if (this.whatsapp.client) {
+      if (this.whatsapp.browser) {
+        console.log('🔴 Закрытие браузера...');
         await this.whatsapp.destroy();
       }
 
+      // Удаляем папку сессии
+      const sessionDir = path.join(__dirname, '.wwebjs_auth');
+      if (fs.existsSync(sessionDir)) {
+        console.log('🗑️  Удаление сессии WhatsApp...');
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+      }
+
       // Небольшая задержка
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       // Повторная инициализация
+      console.log('🔄 Запуск новой сессии WhatsApp...');
       this.whatsapp.initialize().then(() => {
-        console.log('✅ WhatsApp переподключен');
+        console.log('✅ WhatsApp переподключен, требуется сканирование QR-кода');
       }).catch((error) => {
         console.error('❌ Ошибка переподключения WhatsApp:', error.message);
       });
 
       res.json({
-        message: 'WhatsApp переподключается...',
+        message: 'WhatsApp переподключается, требуется новый QR-код',
         status: 'reconnecting'
       });
     } catch (error) {

@@ -190,10 +190,10 @@ async function displayWhatsAppScreen() {
 
 // Переподключить WhatsApp
 async function reconnectWhatsApp() {
-    if (!confirm('Переподключить WhatsApp? Это может занять некоторое время.')) return;
+    if (!confirm('Переподключить WhatsApp?\n\nТекущая сессия будет удалена и потребуется отсканировать новый QR-код.')) return;
 
     try {
-        showNotification('Переподключение WhatsApp...', 'info');
+        showNotification('Удаление текущей сессии и переподключение...', 'info');
 
         const res = await fetch(`${API_BASE}/api/whatsapp/reconnect`, {
             method: 'POST',
@@ -203,13 +203,17 @@ async function reconnectWhatsApp() {
         const data = await res.json();
 
         if (res.ok) {
-            showNotification('WhatsApp переподключается...', 'success');
+            showNotification('Сессия удалена! Отсканируйте новый QR-код', 'success');
+
+            // Обновить статус сразу
+            refreshStatus();
 
             // Запустить частую проверку статуса
-            setTimeout(() => {
-                if (qrCheckInterval) clearInterval(qrCheckInterval);
-                qrCheckInterval = setInterval(refreshStatus, 2000);
-            }, 2000);
+            if (qrCheckInterval) clearInterval(qrCheckInterval);
+            qrCheckInterval = setInterval(() => {
+                refreshStatus();
+                displayWhatsAppScreen();
+            }, 3000);
         } else {
             showNotification(data.error || 'Ошибка переподключения', 'error');
         }

@@ -1,3 +1,2 @@
-2025/11/27-09:19:59.695 2c Reusing MANIFEST /app/.wwebjs_auth/Default/GCM Store/MANIFEST-000001
-2025/11/27-09:19:59.703 2c Recovering log #3
-2025/11/27-09:19:59.704 2c Reusing old log /app/.wwebjs_auth/Default/GCM Store/000003.log 
+2025/11/27-09:28:26.350 28 Creating DB /app/.wwebjs_auth/Default/GCM Store since it was missing.
+2025/11/27-09:28:26.352 28 Reusing MANIFEST /app/.wwebjs_auth/Default/GCM Store/MANIFEST-000001
