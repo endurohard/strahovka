@@ -562,66 +562,162 @@ class API {
 
   // Переподключение WhatsApp
   async reconnectWhatsApp(req, res) {
-    try {
-      console.log('🔄 Запрос на переподключение WhatsApp...');
+    // Сразу отправляем ответ клиенту
+    res.json({
+      message: 'WhatsApp переподключается, требуется новый QR-код',
+      status: 'reconnecting'
+    });
 
-      // Отключаем текущее соединение
-      if (this.whatsapp.browser) {
-        console.log('🔴 Закрытие браузера...');
-        await this.whatsapp.destroy();
+    // Выполняем переподключение асинхронно
+    setImmediate(async () => {
+      try {
+        console.log('🔄 Запрос на переподключение WhatsApp...');
+
+        // Закрываем браузер с таймаутом
+        if (this.whatsapp.browser) {
+          console.log('🔴 Закрытие браузера...');
+          try {
+            const destroyPromise = this.whatsapp.destroy();
+            const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Timeout')), 5000)
+            );
+            await Promise.race([destroyPromise, timeoutPromise]);
+            console.log('✅ Браузер закрыт');
+          } catch (destroyError) {
+            console.warn('⚠️  Браузер не закрыт (таймаут или ошибка):', destroyError.message);
+          }
+        }
+
+        // Даем время на освобождение ресурсов
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Удаляем папку сессии
+        const sessionDir = path.join(__dirname, '.wwebjs_auth');
+        if (fs.existsSync(sessionDir)) {
+          console.log('🗑️  Удаление сессии WhatsApp...');
+          try {
+            const { execSync } = require('child_process');
+            execSync(`rm -rf "${sessionDir}"`);
+            console.log('✅ Сессия удалена');
+          } catch (rmError) {
+            console.error('❌ Ошибка удаления сессии:', rmError.message);
+            // Пробуем через fs
+            try {
+              fs.rmSync(sessionDir, { recursive: true, force: true });
+              console.log('✅ Сессия удалена (через fs)');
+            } catch (fsError) {
+              console.error('❌ Не удалось удалить сессию:', fsError.message);
+            }
+          }
+        }
+
+        // Небольшая задержка перед повторной инициализацией
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Повторная инициализация
+        console.log('🔄 Запуск новой сессии WhatsApp...');
+        this.whatsapp.initialize().then(() => {
+          console.log('✅ WhatsApp переподключен, требуется сканирование QR-кода');
+        }).catch((error) => {
+          console.error('❌ Ошибка переподключения WhatsApp:', error.message);
+        });
+
+      } catch (error) {
+        console.error('❌ Ошибка переподключения:', error);
+        console.error('   Stack:', error.stack);
       }
-
-      // Удаляем папку сессии
-      const sessionDir = path.join(__dirname, '.wwebjs_auth');
-      if (fs.existsSync(sessionDir)) {
-        console.log('🗑️  Удаление сессии WhatsApp...');
-        fs.rmSync(sessionDir, { recursive: true, force: true });
-      }
-
-      // Небольшая задержка
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Повторная инициализация
-      console.log('🔄 Запуск новой сессии WhatsApp...');
-      this.whatsapp.initialize().then(() => {
-        console.log('✅ WhatsApp переподключен, требуется сканирование QR-кода');
-      }).catch((error) => {
-        console.error('❌ Ошибка переподключения WhatsApp:', error.message);
-      });
-
-      res.json({
-        message: 'WhatsApp переподключается, требуется новый QR-код',
-        status: 'reconnecting'
-      });
-    } catch (error) {
-      console.error('❌ Ошибка переподключения:', error);
-      res.status(500).json({ error: error.message });
-    }
+    });
   }
 
   // Отключение WhatsApp
   async disconnectWhatsApp(req, res) {
-    try {
-      console.log('🔴 Запрос на отключение WhatsApp...');
+    // Сразу отправляем ответ клиенту, чтобы не зависнуть
+    res.json({
+      message: 'Отключение WhatsApp запущено...',
+      status: 'disconnecting'
+    });
 
-      if (this.whatsapp.client) {
-        await this.whatsapp.destroy();
-        console.log('✅ WhatsApp отключен');
+    // Выполняем отключение асинхронно
+    setImmediate(async () => {
+      try {
+        console.log('🔴 Запрос на отключение WhatsApp...');
 
-        res.json({
-          message: 'WhatsApp отключен',
-          status: 'disconnected'
-        });
-      } else {
-        res.json({
-          message: 'WhatsApp уже отключен',
-          status: 'disconnected'
-        });
+        // ВАЖНО: Сначала вызываем logout для отвязки устройства через UI
+        if (this.whatsapp.page && this.whatsapp.isReady) {
+          console.log('🔴 Попытка отвязать устройство через UI...');
+          try {
+            const logoutPromise = this.whatsapp.logout();
+            const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Logout timeout')), 15000)
+            );
+
+            await Promise.race([logoutPromise, timeoutPromise]);
+            console.log('✅ Устройство отвязано через UI');
+
+            // Даем время на завершение logout
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          } catch (logoutError) {
+            console.warn('⚠️  Не удалось отвязать через UI:', logoutError.message);
+            // Продолжаем удаление сессии
+          }
+        }
+
+        // Удаляем папку сессии
+        const sessionDir = path.join(__dirname, '.wwebjs_auth');
+        console.log('📂 Проверка папки сессии:', sessionDir);
+
+        if (fs.existsSync(sessionDir)) {
+          console.log('🗑️  Удаление сессии WhatsApp...');
+          try {
+            const { execSync } = require('child_process');
+            execSync(`rm -rf "${sessionDir}"`);
+            console.log('✅ Сессия удалена');
+          } catch (rmError) {
+            console.error('❌ Ошибка удаления сессии:', rmError.message);
+            // Пробуем через fs
+            try {
+              fs.rmSync(sessionDir, { recursive: true, force: true });
+              console.log('✅ Сессия удалена (через fs)');
+            } catch (fsError) {
+              console.error('❌ Не удалось удалить сессию:', fsError.message);
+            }
+          }
+        } else {
+          console.log('ℹ️  Папка сессии не существует');
+        }
+
+        // Теперь закрываем браузер (с таймаутом)
+        console.log('🔴 Попытка закрытия браузера...');
+        try {
+          const destroyPromise = this.whatsapp.destroy();
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Timeout')), 3000)
+          );
+
+          await Promise.race([destroyPromise, timeoutPromise]);
+          console.log('✅ Браузер закрыт');
+        } catch (destroyError) {
+          console.warn('⚠️  Браузер не закрыт (таймаут или ошибка):', destroyError.message);
+          // Убиваем процесс браузера принудительно
+          try {
+            console.log('🔪 Принудительное завершение процессов Chrome...');
+            const { execSync } = require('child_process');
+            execSync('pkill -f chrome || true');
+            execSync('pkill -f chromium || true');
+            console.log('✅ Процессы завершены');
+          } catch (killError) {
+            console.warn('⚠️  Не удалось убить процессы:', killError.message);
+          }
+        }
+
+        console.log('✅ WhatsApp отключен и устройство отвязано');
+        console.log('ℹ️  Для повторного подключения перезагрузите контейнер');
+
+      } catch (error) {
+        console.error('❌ Ошибка отключения:', error);
+        console.error('   Stack:', error.stack);
       }
-    } catch (error) {
-      console.error('❌ Ошибка отключения:', error);
-      res.status(500).json({ error: error.message });
-    }
+    });
   }
 
   // Изменение учетных данных администратора

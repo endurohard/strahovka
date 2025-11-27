@@ -189,7 +189,25 @@ class WhatsAppService {
   async destroy() {
     if (this.client) {
       await this.client.destroy();
+      this.isReady = false;
       console.log('🔴 WhatsApp клиент остановлен');
+    }
+  }
+
+  /**
+   * Отключение и выход из WhatsApp (отвязывание устройства)
+   */
+  async logout() {
+    if (this.client) {
+      try {
+        console.log('🔴 Выход из WhatsApp и отвязывание устройства...');
+        await this.client.logout();
+        this.isReady = false;
+        console.log('✅ Устройство отвязано от WhatsApp');
+      } catch (error) {
+        console.error('❌ Ошибка при выходе из WhatsApp:', error.message);
+        throw error;
+      }
     }
   }
 }

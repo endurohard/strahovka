@@ -318,8 +318,121 @@ class WhatsAppPuppeteer {
   async destroy() {
     if (this.browser) {
       await this.browser.close();
+      this.browser = null;
+      this.page = null;
       this.isReady = false;
       console.log('🔴 WhatsApp браузер закрыт');
+    }
+  }
+
+  /**
+   * Выход из WhatsApp (отвязывание устройства)
+   */
+  async logout() {
+    if (!this.page || !this.isReady) {
+      console.log('⚠️  WhatsApp не инициализирован, пропускаем logout');
+      return;
+    }
+
+    try {
+      console.log('🔴 Выполнение logout на странице WhatsApp...');
+
+      // Открываем меню настроек (три точки в верхнем левом углу)
+      const menuSelectors = [
+        '[data-testid="menu"]',
+        '[aria-label*="Menu"]',
+        '[title*="Menu"]',
+        'header button[aria-label]',
+        'header span[data-testid="menu"]'
+      ];
+
+      let menuClicked = false;
+      for (const selector of menuSelectors) {
+        try {
+          await this.page.waitForSelector(selector, { timeout: 3000 });
+          await this.page.click(selector);
+          console.log(`   ✅ Меню открыто через: ${selector}`);
+          menuClicked = true;
+          break;
+        } catch (e) {
+          // Пробуем следующий селектор
+        }
+      }
+
+      if (!menuClicked) {
+        console.log('⚠️  Не удалось открыть меню, пропускаем logout на странице');
+        return;
+      }
+
+      // Ждем появления меню
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Ищем пункт "Выйти" / "Log out"
+      const logoutSelectors = [
+        '[data-testid="mi-logout"]',
+        'li[data-testid*="logout"]',
+        'div[role="button"]:has-text("Выйти")',
+        'div[role="button"]:has-text("Log out")'
+      ];
+
+      let logoutClicked = false;
+      for (const selector of logoutSelectors) {
+        try {
+          await this.page.click(selector);
+          console.log(`   ✅ Нажата кнопка выхода через: ${selector}`);
+          logoutClicked = true;
+          break;
+        } catch (e) {
+          // Пробуем следующий селектор
+        }
+      }
+
+      if (!logoutClicked) {
+        // Пробуем через XPath
+        try {
+          const elements = await this.page.$x("//div[contains(text(), 'Выйти') or contains(text(), 'Log out')]");
+          if (elements.length > 0) {
+            await elements[0].click();
+            console.log('   ✅ Нажата кнопка выхода через XPath');
+            logoutClicked = true;
+          }
+        } catch (e) {
+          console.log('⚠️  Не удалось найти кнопку выхода');
+        }
+      }
+
+      if (logoutClicked) {
+        // Ждем подтверждения выхода
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Подтверждаем выход (если есть диалог подтверждения)
+        try {
+          const confirmSelectors = [
+            '[data-testid="popup-controls-ok"]',
+            'button:has-text("Выйти")',
+            'button:has-text("Log out")'
+          ];
+
+          for (const selector of confirmSelectors) {
+            try {
+              await this.page.click(selector, { timeout: 2000 });
+              console.log('   ✅ Подтвержден выход');
+              break;
+            } catch (e) {
+              // Может не быть диалога подтверждения
+            }
+          }
+        } catch (e) {
+          // Игнорируем, если нет диалога подтверждения
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        console.log('✅ Logout выполнен на странице WhatsApp');
+      }
+
+    } catch (error) {
+      console.error('❌ Ошибка при logout:', error.message);
+      // Не выбрасываем ошибку, продолжаем процесс отключения
     }
   }
 }

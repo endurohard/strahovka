@@ -225,10 +225,10 @@ async function reconnectWhatsApp() {
 
 // Отключить WhatsApp
 async function disconnectWhatsApp() {
-    if (!confirm('Отключить WhatsApp? Потребуется повторная авторизация через QR код.')) return;
+    if (!confirm('Отключить WhatsApp и отвязать устройство?\n\nСессия будет полностью удалена, и устройство будет отвязано от WhatsApp.\nПотребуется повторная авторизация через QR код.')) return;
 
     try {
-        showNotification('Отключение WhatsApp...', 'info');
+        showNotification('Отключение WhatsApp и удаление сессии...', 'info');
 
         const res = await fetch(`${API_BASE}/api/whatsapp/disconnect`, {
             method: 'POST',
@@ -238,7 +238,7 @@ async function disconnectWhatsApp() {
         const data = await res.json();
 
         if (res.ok) {
-            showNotification('WhatsApp отключен', 'success');
+            showNotification('WhatsApp отключен и устройство отвязано', 'success');
             refreshStatus();
         } else {
             showNotification(data.error || 'Ошибка отключения', 'error');
