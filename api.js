@@ -94,6 +94,7 @@ class API {
     this.app.post('/api/whatsapp/reconnect', this.requireAuth.bind(this), this.reconnectWhatsApp.bind(this));
     this.app.post('/api/whatsapp/disconnect', this.requireAuth.bind(this), this.disconnectWhatsApp.bind(this));
     this.app.post('/api/logout', this.requireAuth.bind(this), this.logout.bind(this));
+    this.app.post('/api/admin/change-credentials', this.requireAuth.bind(this), this.changeAdminCredentials.bind(this));
 
     // Upload Excel
     const upload = multer({ dest: 'uploads/' });
@@ -610,6 +611,46 @@ class API {
       }
     } catch (error) {
       console.error('❌ Ошибка отключения:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  // Изменение учетных данных администратора
+  async changeAdminCredentials(req, res) {
+    try {
+      const { username, password } = req.body;
+
+      if (!username || !password) {
+        return res.status(400).json({ error: 'Логин и пароль обязательны' });
+      }
+
+      if (password.length < 6) {
+        return res.status(400).json({ error: 'Пароль должен содержать минимум 6 символов' });
+      }
+
+      // Получаем текущего пользователя
+      const currentUsername = req.user.username;
+
+      // Удаляем старого пользователя
+      delete this.users[currentUsername];
+
+      // Создаем нового пользователя
+      this.users[username] = {
+        password: password, // В продакшене хранить хешированные пароли
+        role: 'admin'
+      };
+
+      // Инвалидируем все токены
+      this.tokens.clear();
+
+      console.log(`✅ Учетные данные администратора обновлены: ${username}`);
+
+      res.json({
+        message: 'Учетные данные успешно обновлены',
+        username: username
+      });
+    } catch (error) {
+      console.error('❌ Ошибка изменения учетных данных:', error);
       res.status(500).json({ error: error.message });
     }
   }

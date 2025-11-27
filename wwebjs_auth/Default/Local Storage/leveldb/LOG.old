@@ -1,21 +1,3 @@
-2025/11/26-23:28:54.895 40 Reusing MANIFEST /app/.wwebjs_auth/Default/Local Storage/leveldb/MANIFEST-000001
-2025/11/26-23:28:54.927 40 Recovering log #13
-2025/11/26-23:28:54.930 40 Reusing old log /app/.wwebjs_auth/Default/Local Storage/leveldb/000013.log 
-2025/11/27-01:10:51.053 42 Level-0 table #17: started
-2025/11/27-01:10:51.062 42 Level-0 table #17: 15027 bytes OK
-2025/11/27-01:10:51.071 42 Delete type=0 #13
-2025/11/27-05:25:45.729 42 Level-0 table #19: started
-2025/11/27-05:25:45.747 42 Level-0 table #19: 16660 bytes OK
-2025/11/27-05:25:45.755 42 Delete type=0 #16
-2025/11/27-05:25:45.757 42 Compacting 4@0 + 1@1 files
-2025/11/27-05:25:45.764 42 Generated table #20@0: 123 keys, 7277 bytes
-2025/11/27-05:25:45.765 42 Compacted 4@0 + 1@1 files => 7277 bytes
-2025/11/27-05:25:45.767 42 compacted to: files[ 0 1 1 0 0 0 0 ]
-2025/11/27-05:25:45.778 42 Delete type=2 #14
-2025/11/27-05:25:45.779 42 Delete type=2 #17
-2025/11/27-05:25:45.780 42 Delete type=2 #11
-2025/11/27-05:25:45.781 42 Delete type=2 #8
-2025/11/27-05:25:45.781 42 Delete type=2 #19
-2025/11/27-09:00:25.768 42 Level-0 table #22: started
-2025/11/27-09:00:25.779 42 Level-0 table #22: 15154 bytes OK
-2025/11/27-09:00:25.786 42 Delete type=0 #18
+2025/11/27-09:16:22.869 4b Reusing MANIFEST /app/.wwebjs_auth/Default/Local Storage/leveldb/MANIFEST-000001
+2025/11/27-09:16:22.918 4b Recovering log #21
+2025/11/27-09:16:22.919 4b Reusing old log /app/.wwebjs_auth/Default/Local Storage/leveldb/000021.log 

@@ -156,6 +156,22 @@
 
             <!-- Боковая панель -->
             <div class="space-y-6">
+                <!-- Настройки администратора -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4">
+                        <i class="fas fa-user-shield text-red-600 mr-2"></i>
+                        Администратор
+                    </h3>
+                    <button
+                        onclick="changeAdminCredentials()"
+                        class="w-full p-4 border-2 border-blue-200 rounded-lg hover:bg-blue-50 transition text-left"
+                    >
+                        <i class="fas fa-key text-blue-600 text-xl mb-2"></i>
+                        <p class="font-semibold text-gray-800">Изменить логин/пароль</p>
+                        <p class="text-sm text-gray-600">Обновить учетные данные</p>
+                    </button>
+                </div>
+
                 <!-- Информация -->
                 <div class="bg-white rounded-lg shadow-lg p-6">
                     <h3 class="text-lg font-bold text-gray-800 mb-4">

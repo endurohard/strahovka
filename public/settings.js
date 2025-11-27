@@ -421,6 +421,135 @@ function showNotification(message, type = 'info') {
     }, 5000);
 }
 
+// Изменение учетных данных администратора
+async function changeAdminCredentials() {
+    // Создать модальное окно
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+    modal.innerHTML = `
+        <div class="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-gray-800">
+                    <i class="fas fa-user-shield text-red-600 mr-2"></i>
+                    Изменить учетные данные
+                </h2>
+                <button onclick="this.closest('.fixed').remove()" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            <form id="changeCredentialsForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-user mr-2"></i>Новый логин
+                    </label>
+                    <input
+                        type="text"
+                        id="newUsername"
+                        required
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                        placeholder="Введите новый логин"
+                    >
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-lock mr-2"></i>Новый пароль
+                    </label>
+                    <input
+                        type="password"
+                        id="newPassword"
+                        required
+                        minlength="6"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                        placeholder="Минимум 6 символов"
+                    >
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-lock mr-2"></i>Подтвердите пароль
+                    </label>
+                    <input
+                        type="password"
+                        id="confirmPassword"
+                        required
+                        minlength="6"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                        placeholder="Повторите пароль"
+                    >
+                </div>
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button
+                        type="button"
+                        onclick="this.closest('.fixed').remove()"
+                        class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                    >
+                        Отмена
+                    </button>
+                    <button
+                        type="submit"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
+                        <i class="fas fa-save mr-2"></i>Сохранить
+                    </button>
+                </div>
+            </form>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Обработка формы
+    document.getElementById('changeCredentialsForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const newUsername = document.getElementById('newUsername').value;
+        const newPassword = document.getElementById('newPassword').value;
+        const confirmPassword = document.getElementById('confirmPassword').value;
+
+        // Валидация
+        if (newPassword !== confirmPassword) {
+            showNotification('Пароли не совпадают', 'error');
+            return;
+        }
+
+        if (newPassword.length < 6) {
+            showNotification('Пароль должен содержать минимум 6 символов', 'error');
+            return;
+        }
+
+        try {
+            showNotification('Обновление учетных данных...', 'info');
+
+            const res = await fetch(`${API_BASE}/api/admin/change-credentials`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify({
+                    username: newUsername,
+                    password: newPassword
+                })
+            });
+
+            const data = await res.json();
+
+            if (res.ok) {
+                showNotification('Учетные данные успешно обновлены! Перенаправление на страницу входа...', 'success');
+                modal.remove();
+
+                // Через 2 секунды выход и переход на логин
+                setTimeout(() => {
+                    localStorage.removeItem('authToken');
+                    localStorage.removeItem('username');
+                    window.location.href = '/login';
+                }, 2000);
+            } else {
+                showNotification(data.error || 'Ошибка обновления', 'error');
+            }
+        } catch (error) {
+            console.error('Ошибка обновления учетных данных:', error);
+            showNotification('Ошибка обновления учетных данных', 'error');
+        }
+    });
+}
+
 // Очистка интервалов при уходе со страницы
 window.addEventListener('beforeunload', () => {
     if (statusCheckInterval) clearInterval(statusCheckInterval);
