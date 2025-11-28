@@ -53,8 +53,10 @@ class WhatsAppPuppeteer {
       // Ждем либо QR-код, либо успешную авторизацию
       await this.waitForAuth();
 
-      console.log('✅ WhatsApp Web готов к использованию!');
-      this.isReady = true;
+      // НЕ устанавливаем isReady здесь - он будет установлен:
+      // 1. В waitForAuth() если есть сохраненная сессия
+      // 2. В startAuthCheck() когда пользователь отсканирует QR-код
+      console.log('✅ WhatsApp Web браузер запущен');
 
     } catch (error) {
       console.error('❌ Ошибка инициализации WhatsApp:', error.message);
