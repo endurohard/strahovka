@@ -259,16 +259,25 @@ class API {
   // Создать клиента
   async createClient(req, res) {
     try {
-      const { name, phone, insurance, services, amount, start_date } = req.body;
+      const { name, phone, insurance, services, amount, start_date, expiration_date } = req.body;
 
-      if (!name || !phone || !start_date) {
-        return res.status(400).json({ error: 'Требуются: name, phone, start_date' });
+      if (!name || !phone) {
+        return res.status(400).json({ error: 'Требуются: name, phone' });
       }
 
-      const startDate = new Date(start_date);
-      const expirationDate = new Date(startDate);
-      expirationDate.setFullYear(expirationDate.getFullYear() + 1);
+      // Дата оформления - если не указана, используем текущую дату
+      const startDate = start_date ? new Date(start_date) : new Date();
 
+      // Дата окончания страховки - если не указана, вычисляем через год от даты оформления
+      let expirationDate;
+      if (expiration_date) {
+        expirationDate = new Date(expiration_date);
+      } else {
+        expirationDate = new Date(startDate);
+        expirationDate.setFullYear(expirationDate.getFullYear() + 1);
+      }
+
+      // Дата первого напоминания - за 7 дней до окончания (используется для обратной совместимости)
       const reminderDate = new Date(expirationDate);
       reminderDate.setDate(reminderDate.getDate() - 7);
 
@@ -283,7 +292,12 @@ class API {
         startDate, expirationDate, reminderDate
       ]);
 
-      res.status(201).json(result.rows[0]);
+      const newClient = result.rows[0];
+
+      // Генерируем ежедневные напоминания от даты оформления до даты окончания
+      await this.db.generateDailyReminders(newClient.id, startDate, expirationDate);
+
+      res.status(201).json(newClient);
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

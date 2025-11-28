@@ -112,41 +112,51 @@ class InsuranceReminderService {
       return;
     }
 
-    console.log('\n⏰ Проверка напоминаний...');
+    console.log('\n⏰ Проверка ежедневных напоминаний...');
     console.log(`   Текущее время: ${new Date().toLocaleString('ru-RU')}`);
 
     try {
-      // Получаем клиентов для напоминания
-      const clientsToRemind = await this.db.getClientsForReminder();
+      // Получаем ежедневные напоминания на сегодня
+      const reminders = await this.db.getDailyReminders();
 
-      if (clientsToRemind.length === 0) {
-        console.log('   ℹ️  Нет клиентов для напоминания сегодня');
+      if (reminders.length === 0) {
+        console.log('   ℹ️  Нет напоминаний для отправки сегодня');
         return;
       }
 
-      console.log(`   📨 Найдено ${clientsToRemind.length} клиентов для напоминания`);
+      console.log(`   📨 Найдено ${reminders.length} напоминаний для отправки`);
 
       // Отправляем напоминания через WhatsApp
-      for (const client of clientsToRemind) {
+      for (const reminder of reminders) {
         try {
+          // Создаем сообщение с учетом количества дней до окончания
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+
+          const expirationDate = new Date(reminder.expiration_date);
+          expirationDate.setHours(0, 0, 0, 0);
+
+          const daysLeft = Math.ceil((expirationDate - today) / (1000 * 60 * 60 * 24));
+
           const message = this.whatsapp.createReminderMessage({
-            name: client.name,
-            insurance: client.insurance,
-            expirationDate: new Date(client.expiration_date)
+            name: reminder.name,
+            insurance: reminder.insurance,
+            expirationDate: expirationDate,
+            daysLeft: daysLeft
           });
 
-          await this.whatsapp.sendMessage(client.phone_formatted, message);
+          await this.whatsapp.sendMessage(reminder.phone_formatted, message);
 
-          // Отмечаем в базе данных
-          await this.db.markReminderSent(client.id);
+          // Отмечаем напоминание как отправленное
+          await this.db.markDailyReminderSent(reminder.reminder_id);
 
-          console.log(`   ✅ Отправлено: ${client.name} (${client.phone_formatted})`);
+          console.log(`   ✅ Отправлено: ${reminder.name} (дней до окончания: ${daysLeft})`);
 
           // Задержка между сообщениями
           await new Promise(resolve => setTimeout(resolve, 3000));
 
         } catch (error) {
-          console.error(`   ❌ Ошибка отправки для ${client.name}:`, error.message);
+          console.error(`   ❌ Ошибка отправки для ${reminder.name}:`, error.message);
         }
       }
 

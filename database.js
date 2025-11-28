@@ -36,8 +36,20 @@ class Database {
         UNIQUE(phone_formatted, start_date)
       );
 
+      CREATE TABLE IF NOT EXISTS daily_reminders (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+        reminder_date DATE NOT NULL,
+        sent_at TIMESTAMP,
+        status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(client_id, reminder_date)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_reminder_date ON clients(reminder_date);
       CREATE INDEX IF NOT EXISTS idx_phone ON clients(phone_formatted);
+      CREATE INDEX IF NOT EXISTS idx_daily_reminder_date ON daily_reminders(reminder_date);
+      CREATE INDEX IF NOT EXISTS idx_daily_reminder_status ON daily_reminders(status);
     `;
 
     try {
@@ -86,7 +98,12 @@ class Database {
 
     try {
       const result = await this.pool.query(query, values);
-      return result.rows[0].id;
+      const clientId = result.rows[0].id;
+
+      // Генерируем ежедневные напоминания от даты оформления до даты окончания
+      await this.generateDailyReminders(clientId, client.dateObject, client.expirationDate);
+
+      return clientId;
     } catch (error) {
       console.error(`❌ Ошибка при сохранении клиента ${client.name}:`, error.message);
       throw error;
@@ -199,6 +216,101 @@ class Database {
       return result.rows[0];
     } catch (error) {
       console.error('❌ Ошибка получения статистики:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Генерация ежедневных напоминаний для клиента
+   * Создает запись на каждый день от даты оформления до даты окончания страховки
+   * @param {number} clientId - ID клиента
+   * @param {Date} startDate - дата оформления
+   * @param {Date} expirationDate - дата окончания страховки
+   */
+  async generateDailyReminders(clientId, startDate, expirationDate) {
+    try {
+      const reminders = [];
+      const currentDate = new Date(startDate);
+      currentDate.setHours(0, 0, 0, 0);
+
+      const endDate = new Date(expirationDate);
+      endDate.setHours(0, 0, 0, 0);
+
+      // Генерируем напоминание на каждый день от start_date до expiration_date
+      while (currentDate <= endDate) {
+        reminders.push({
+          client_id: clientId,
+          reminder_date: new Date(currentDate)
+        });
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+
+      // Вставляем все напоминания за один запрос
+      if (reminders.length > 0) {
+        const values = reminders.map((r, idx) =>
+          `($${idx * 2 + 1}, $${idx * 2 + 2})`
+        ).join(', ');
+
+        const flatValues = reminders.flatMap(r => [r.client_id, r.reminder_date]);
+
+        const query = `
+          INSERT INTO daily_reminders (client_id, reminder_date)
+          VALUES ${values}
+          ON CONFLICT (client_id, reminder_date) DO NOTHING;
+        `;
+
+        await this.pool.query(query, flatValues);
+        console.log(`✅ Создано ${reminders.length} ежедневных напоминаний для клиента ${clientId}`);
+      }
+    } catch (error) {
+      console.error(`❌ Ошибка генерации ежедневных напоминаний для клиента ${clientId}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Получение клиентов для ежедневных напоминаний на указанную дату
+   * @param {Date} date - дата для проверки
+   */
+  async getDailyReminders(date = new Date()) {
+    const dateStr = date.toISOString().split('T')[0];
+
+    const query = `
+      SELECT
+        dr.id as reminder_id,
+        dr.reminder_date,
+        c.*
+      FROM daily_reminders dr
+      JOIN clients c ON dr.client_id = c.id
+      WHERE dr.reminder_date = $1
+        AND dr.status = 'pending'
+      ORDER BY c.name;
+    `;
+
+    try {
+      const result = await this.pool.query(query, [dateStr]);
+      return result.rows;
+    } catch (error) {
+      console.error('❌ Ошибка получения ежедневных напоминаний:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Отметка отправки ежедневного напоминания
+   * @param {number} reminderId - ID напоминания из daily_reminders
+   */
+  async markDailyReminderSent(reminderId) {
+    const query = `
+      UPDATE daily_reminders
+      SET sent_at = NOW(), status = 'sent'
+      WHERE id = $1;
+    `;
+
+    try {
+      await this.pool.query(query, [reminderId]);
+    } catch (error) {
+      console.error(`❌ Ошибка отметки ежедневного напоминания ${reminderId}:`, error.message);
       throw error;
     }
   }

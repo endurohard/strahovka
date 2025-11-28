@@ -257,14 +257,28 @@ class WhatsAppPuppeteer {
    */
   createReminderMessage(client) {
     const expirationDate = client.expirationDate.toLocaleDateString('ru-RU');
+    const daysLeft = client.daysLeft !== undefined ? client.daysLeft : null;
 
-    return `Здравствуйте, ${client.name}!
+    let message = `Здравствуйте, ${client.name}!
 
-Напоминаем, что срок действия вашей страховки (${client.insurance}) истекает ${expirationDate}.
+Напоминаем, что срок действия вашей страховки (${client.insurance}) истекает ${expirationDate}.`;
 
-Для продления страховки, пожалуйста, свяжитесь с нами.
+    // Добавляем информацию о количестве дней, если она доступна
+    if (daysLeft !== null) {
+      if (daysLeft === 0) {
+        message += '\n\n⚠️ ВНИМАНИЕ: Страховка истекает СЕГОДНЯ!';
+      } else if (daysLeft === 1) {
+        message += '\n\nОсталось всего 1 день!';
+      } else if (daysLeft <= 7) {
+        message += `\n\nОсталось всего ${daysLeft} дней!`;
+      } else {
+        message += `\n\nОсталось ${daysLeft} дней до окончания.`;
+      }
+    }
 
-Спасибо, что выбираете наши услуги!`;
+    message += '\n\nДля продления страховки, пожалуйста, свяжитесь с нами.\n\nСпасибо, что выбираете наши услуги!';
+
+    return message;
   }
 
   /**
