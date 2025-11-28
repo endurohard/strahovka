@@ -35,7 +35,7 @@ services:
       DB_USER: postgres
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       EXCEL_FILE_PATH: /data/clients.xlsx
-      API_PORT: 3000
+      API_PORT: 10804
       TZ: Europe/Moscow
     volumes:
       # Директория для Excel файлов
@@ -49,7 +49,7 @@ services:
       # Статические файлы (для быстрого обновления без пересборки)
       - ./public:/app/public
     ports:
-      - "3000:3000"
+      - "10804:10804"
       - "9222:9222"  # Порт для удаленной отладки Chrome
     stdin_open: true
     tty: true
