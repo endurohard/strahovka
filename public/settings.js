@@ -571,6 +571,90 @@ async function changeAdminCredentials() {
     });
 }
 
+// Загрузка шаблона сообщения при старте
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadMessageTemplate();
+});
+
+// Загрузка шаблона сообщения
+async function loadMessageTemplate() {
+    try {
+        const res = await fetch(`${API_BASE}/api/message-template`, {
+            headers: getAuthHeaders()
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            document.getElementById('message-template').value = data.template;
+        } else {
+            showNotification('Ошибка загрузки шаблона', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки шаблона:', error);
+        showNotification('Ошибка загрузки шаблона сообщения', 'error');
+    }
+}
+
+// Сохранение шаблона сообщения
+async function saveMessageTemplate() {
+    const template = document.getElementById('message-template').value;
+
+    if (!template.trim()) {
+        showNotification('Шаблон не может быть пустым', 'error');
+        return;
+    }
+
+    // Проверка обязательных плейсхолдеров
+    const requiredPlaceholders = ['{name}', '{insurance}', '{expirationDate}'];
+    const missing = requiredPlaceholders.filter(ph => !template.includes(ph));
+
+    if (missing.length > 0) {
+        showNotification(`Отсутствуют обязательные плейсхолдеры: ${missing.join(', ')}`, 'error');
+        return;
+    }
+
+    try {
+        showNotification('Сохранение шаблона...', 'info');
+
+        const res = await fetch(`${API_BASE}/api/message-template`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ template })
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+            showNotification('Шаблон сообщения успешно сохранен!', 'success');
+        } else {
+            showNotification(data.error || 'Ошибка сохранения', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка сохранения шаблона:', error);
+        showNotification('Ошибка сохранения шаблона', 'error');
+    }
+}
+
+// Сброс шаблона к значению по умолчанию
+async function resetMessageTemplate() {
+    if (!confirm('Вы уверены, что хотите сбросить шаблон к значению по умолчанию?')) {
+        return;
+    }
+
+    const defaultTemplate = `Здравствуйте, {name}!
+
+Напоминаем, что срок действия вашей страховки ({insurance}) истекает {expirationDate}.
+
+{daysLeftMessage}
+
+Для продления страховки, пожалуйста, свяжитесь с нами.
+
+Спасибо, что выбираете наши услуги!`;
+
+    document.getElementById('message-template').value = defaultTemplate;
+    showNotification('Шаблон сброшен. Нажмите "Сохранить" для применения', 'info');
+}
+
 // Очистка интервалов при уходе со страницы
 window.addEventListener('beforeunload', () => {
     if (statusCheckInterval) clearInterval(statusCheckInterval);

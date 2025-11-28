@@ -9,6 +9,7 @@ class WhatsAppPuppeteer {
     this.isReady = false;
     this.sessionDir = path.join(__dirname, '.wwebjs_auth');
     this.currentQR = null;
+    this.messageTemplate = null; // Пользовательский шаблон сообщения
 
     // Создаем директорию для сессии если её нет
     if (!fs.existsSync(this.sessionDir)) {
@@ -253,30 +254,51 @@ class WhatsAppPuppeteer {
   }
 
   /**
+   * Возвращает шаблон сообщения по умолчанию
+   */
+  getDefaultTemplate() {
+    return `Здравствуйте, {name}!
+
+Напоминаем, что срок действия вашей страховки ({insurance}) истекает {expirationDate}.
+
+{daysLeftMessage}
+
+Для продления страховки, пожалуйста, свяжитесь с нами.
+
+Спасибо, что выбираете наши услуги!`;
+  }
+
+  /**
    * Создаёт текст напоминания для клиента
    */
   createReminderMessage(client) {
     const expirationDate = client.expirationDate.toLocaleDateString('ru-RU');
     const daysLeft = client.daysLeft !== undefined ? client.daysLeft : null;
 
-    let message = `Здравствуйте, ${client.name}!
-
-Напоминаем, что срок действия вашей страховки (${client.insurance}) истекает ${expirationDate}.`;
-
-    // Добавляем информацию о количестве дней, если она доступна
+    // Формируем сообщение о количестве дней
+    let daysLeftMessage = '';
     if (daysLeft !== null) {
       if (daysLeft === 0) {
-        message += '\n\n⚠️ ВНИМАНИЕ: Страховка истекает СЕГОДНЯ!';
+        daysLeftMessage = '⚠️ ВНИМАНИЕ: Страховка истекает СЕГОДНЯ!';
       } else if (daysLeft === 1) {
-        message += '\n\nОсталось всего 1 день!';
+        daysLeftMessage = 'Осталось всего 1 день!';
       } else if (daysLeft <= 7) {
-        message += `\n\nОсталось всего ${daysLeft} дней!`;
+        daysLeftMessage = `Осталось всего ${daysLeft} дней!`;
       } else {
-        message += `\n\nОсталось ${daysLeft} дней до окончания.`;
+        daysLeftMessage = `Осталось ${daysLeft} дней до окончания.`;
       }
     }
 
-    message += '\n\nДля продления страховки, пожалуйста, свяжитесь с нами.\n\nСпасибо, что выбираете наши услуги!';
+    // Используем пользовательский шаблон или шаблон по умолчанию
+    const template = this.messageTemplate || this.getDefaultTemplate();
+
+    // Заменяем плейсхолдеры на реальные значения
+    let message = template
+      .replace(/\{name\}/g, client.name)
+      .replace(/\{insurance\}/g, client.insurance || 'страховка')
+      .replace(/\{expirationDate\}/g, expirationDate)
+      .replace(/\{daysLeftMessage\}/g, daysLeftMessage)
+      .replace(/\{daysLeft\}/g, daysLeft !== null ? daysLeft.toString() : '');
 
     return message;
   }

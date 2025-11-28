@@ -95,6 +95,8 @@ class API {
     this.app.post('/api/whatsapp/disconnect', this.requireAuth.bind(this), this.disconnectWhatsApp.bind(this));
     this.app.post('/api/logout', this.requireAuth.bind(this), this.logout.bind(this));
     this.app.post('/api/admin/change-credentials', this.requireAuth.bind(this), this.changeAdminCredentials.bind(this));
+    this.app.get('/api/message-template', this.requireAuth.bind(this), this.getMessageTemplate.bind(this));
+    this.app.post('/api/message-template', this.requireAuth.bind(this), this.saveMessageTemplate.bind(this));
 
     // Upload Excel
     const upload = multer({ dest: 'uploads/' });
@@ -770,6 +772,49 @@ class API {
       });
     } catch (error) {
       console.error('❌ Ошибка изменения учетных данных:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  // Получить шаблон сообщения
+  async getMessageTemplate(req, res) {
+    try {
+      const template = this.whatsapp.messageTemplate || this.whatsapp.getDefaultTemplate();
+      res.json({ template });
+    } catch (error) {
+      console.error('❌ Ошибка получения шаблона:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  // Сохранить шаблон сообщения
+  async saveMessageTemplate(req, res) {
+    try {
+      const { template } = req.body;
+
+      if (!template || template.trim() === '') {
+        return res.status(400).json({ error: 'Шаблон сообщения не может быть пустым' });
+      }
+
+      // Проверяем наличие необходимых плейсхолдеров
+      const requiredPlaceholders = ['{name}', '{insurance}', '{expirationDate}'];
+      const missingPlaceholders = requiredPlaceholders.filter(ph => !template.includes(ph));
+
+      if (missingPlaceholders.length > 0) {
+        return res.status(400).json({
+          error: `Шаблон должен содержать следующие плейсхолдеры: ${missingPlaceholders.join(', ')}`
+        });
+      }
+
+      this.whatsapp.messageTemplate = template;
+      console.log('✅ Шаблон сообщения обновлен');
+
+      res.json({
+        message: 'Шаблон сообщения успешно сохранен',
+        template: template
+      });
+    } catch (error) {
+      console.error('❌ Ошибка сохранения шаблона:', error);
       res.status(500).json({ error: error.message });
     }
   }
