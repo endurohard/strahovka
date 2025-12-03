@@ -320,7 +320,21 @@ async function uploadFile() {
 }
 
 // Модальное окно добавления клиента
-function showAddClientModal() {
+async function showAddClientModal() {
+    // Загружаем список сотрудников
+    try {
+        const res = await fetch(`${API_BASE}/api/employees`, {
+            headers: getAuthHeaders()
+        });
+        const employees = await res.json();
+        const select = document.getElementById('employee-select');
+        select.innerHTML = '<option value="">-- Не выбран --</option>';
+        employees.forEach(emp => {
+            select.innerHTML += `<option value="${emp.id}">${emp.name}</option>`;
+        });
+    } catch (error) {
+        console.error('Ошибка загрузки сотрудников:', error);
+    }
     document.getElementById('add-client-modal').classList.remove('hidden');
 }
 

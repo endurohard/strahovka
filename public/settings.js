@@ -444,6 +444,9 @@ function showNotification(message, type = 'info') {
 
 // Изменение учетных данных администратора
 async function changeAdminCredentials() {
+    const userRole = localStorage.getItem('userRole') || 'user';
+    const isAdmin = userRole === 'admin';
+
     // Создать модальное окно
     const modal = document.createElement('div');
     modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
@@ -451,14 +454,28 @@ async function changeAdminCredentials() {
         <div class="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-xl font-bold text-gray-800">
-                    <i class="fas fa-user-shield text-red-600 mr-2"></i>
-                    Изменить учетные данные
+                    <i class="fas fa-user-shield text-blue-600 mr-2"></i>
+                    Изменить пароль
                 </h2>
                 <button onclick="this.closest('.fixed').remove()" class="text-gray-500 hover:text-gray-700">
                     <i class="fas fa-times text-xl"></i>
                 </button>
             </div>
             <form id="changeCredentialsForm" class="space-y-4">
+                ${!isAdmin ? `
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-lock mr-2"></i>Текущий пароль
+                    </label>
+                    <input
+                        type="password"
+                        id="oldPassword"
+                        required
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                        placeholder="Введите текущий пароль"
+                    >
+                </div>
+                ` : `
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">
                         <i class="fas fa-user mr-2"></i>Новый логин
@@ -471,6 +488,7 @@ async function changeAdminCredentials() {
                         placeholder="Введите новый логин"
                     >
                 </div>
+                `}
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">
                         <i class="fas fa-lock mr-2"></i>Новый пароль
@@ -522,7 +540,6 @@ async function changeAdminCredentials() {
     document.getElementById('changeCredentialsForm').addEventListener('submit', async (e) => {
         e.preventDefault();
 
-        const newUsername = document.getElementById('newUsername').value;
         const newPassword = document.getElementById('newPassword').value;
         const confirmPassword = document.getElementById('confirmPassword').value;
 
@@ -538,35 +555,52 @@ async function changeAdminCredentials() {
         }
 
         try {
-            showNotification('Обновление учетных данных...', 'info');
+            showNotification('Обновление пароля...', 'info');
 
-            const res = await fetch(`${API_BASE}/api/admin/change-credentials`, {
-                method: 'POST',
-                headers: getAuthHeaders(),
-                body: JSON.stringify({
-                    username: newUsername,
-                    password: newPassword
-                })
-            });
+            let res;
+            if (isAdmin) {
+                // Для админа - меняем логин и пароль через /api/admin/change-credentials
+                const newUsername = document.getElementById('newUsername').value;
+                res = await fetch(`${API_BASE}/api/admin/change-credentials`, {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                        username: newUsername,
+                        password: newPassword
+                    })
+                });
+            } else {
+                // Для обычного пользователя - меняем только пароль через /api/users/change-password
+                const oldPassword = document.getElementById('oldPassword').value;
+                res = await fetch(`${API_BASE}/api/users/change-password`, {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                        old_password: oldPassword,
+                        new_password: newPassword
+                    })
+                });
+            }
 
             const data = await res.json();
 
             if (res.ok) {
-                showNotification('Учетные данные успешно обновлены! Перенаправление на страницу входа...', 'success');
+                showNotification('Пароль успешно изменён! Перенаправление на страницу входа...', 'success');
                 modal.remove();
 
                 // Через 2 секунды выход и переход на логин
                 setTimeout(() => {
                     localStorage.removeItem('authToken');
                     localStorage.removeItem('username');
+                    localStorage.removeItem('userRole');
                     window.location.href = '/login';
                 }, 2000);
             } else {
-                showNotification(data.error || 'Ошибка обновления', 'error');
+                showNotification(data.error || 'Ошибка обновления пароля', 'error');
             }
         } catch (error) {
-            console.error('Ошибка обновления учетных данных:', error);
-            showNotification('Ошибка обновления учетных данных', 'error');
+            console.error('Ошибка обновления пароля:', error);
+            showNotification('Ошибка обновления пароля', 'error');
         }
     });
 }

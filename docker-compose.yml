@@ -33,6 +33,8 @@ services:
       DB_PORT: 5432
       DB_NAME: strahovka
       DB_USER: postgres
+      ADMIN_USERNAME: itadmin
+      ADMIN_PASSWORD: 20TQNF_Srld
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       EXCEL_FILE_PATH: /data/clients.xlsx
       API_PORT: 10804

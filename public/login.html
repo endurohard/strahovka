@@ -106,7 +106,8 @@
 
                 if (response.ok) {
                     // Сохраняем токен
-                    localStorage.setItem('authToken', data.token);
+                    localStorage.setItem("authToken", data.token);
+                    localStorage.setItem("userRole", data.role);
                     localStorage.setItem('username', username);
 
                     // Перенаправляем на главную страницу

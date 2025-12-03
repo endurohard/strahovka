@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Аналитика</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gray-50">
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between items-center py-4">
+                <a href="/" class="flex items-center space-x-3">
+                    <img src="/logo.svg" alt="Logo" class="h-12 w-12">
+                    <h1 class="text-xl font-bold text-gray-800">Аналитика</h1>
+                </a>
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="text-blue-600"><i class="fas fa-home mr-1"></i> Главная</a>
+                    <a href="/settings.html" class="text-gray-600"><i class="fas fa-cog mr-1"></i> Настройки</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <div class="bg-white rounded-lg shadow p-6 mb-8">
+            <h2 class="text-lg font-bold mb-4">Период</h2>
+            <div class="flex flex-wrap gap-4 items-end">
+                <div><label class="block text-sm text-gray-600 mb-1">С</label><input type="date" id="start_date" class="px-4 py-2 border rounded-lg"></div>
+                <div><label class="block text-sm text-gray-600 mb-1">По</label><input type="date" id="end_date" class="px-4 py-2 border rounded-lg"></div>
+                <button onclick="loadAnalytics()" class="px-6 py-2 bg-blue-600 text-white rounded-lg"><i class="fas fa-search mr-2"></i>Показать</button>
+                <button onclick="setThisMonth()" class="px-4 py-2 bg-gray-200 rounded-lg">Этот месяц</button>
+                <button onclick="setLastMonth()" class="px-4 py-2 bg-gray-200 rounded-lg">Прошлый месяц</button>
+            </div>
+        </div>
+        <!-- Основные показатели -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div class="bg-white rounded-lg shadow p-6"><p class="text-gray-500 text-sm">Полисов оформлено</p><p id="total-policies" class="text-2xl font-bold text-blue-600">0</p></div>
+            <div class="bg-white rounded-lg shadow p-6"><p class="text-gray-500 text-sm">Получено от клиентов</p><p id="total-income" class="text-2xl font-bold text-green-600">0 Р</p></div>
+            <div class="bg-white rounded-lg shadow p-6"><p class="text-gray-500 text-sm">Отдано страховым</p><p id="insurance-expenses" class="text-2xl font-bold text-red-600">0 Р</p></div>
+            <div class="bg-white rounded-lg shadow p-6"><p class="text-gray-500 text-sm">Касса (валовая прибыль)</p><p id="gross-profit" class="text-2xl font-bold text-emerald-600">0 Р</p></div>
+        </div>
+        <!-- Расходы из кассы -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-white rounded-lg shadow p-6"><p class="text-gray-500 text-sm">Сотрудникам (с полисов)</p><p id="employee-expenses" class="text-2xl font-bold text-orange-600">0 Р</p></div>
+            <div class="bg-white rounded-lg shadow p-6"><p class="text-gray-500 text-sm">Зарплаты (из кассы)</p><p id="salary-expenses" class="text-2xl font-bold text-orange-500">0 Р</p></div>
+            <div class="bg-white rounded-lg shadow p-6"><p class="text-gray-500 text-sm">Прочие расходы</p><p id="other-expenses" class="text-2xl font-bold text-red-500">0 Р</p></div>
+            <div class="bg-white rounded-lg shadow p-6 border-2 border-purple-300"><p class="text-gray-500 text-sm">Чистая прибыль</p><p id="net-profit" class="text-2xl font-bold text-purple-600">0 Р</p></div>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            <div class="bg-white rounded-lg shadow">
+                <div class="px-6 py-4 border-b flex justify-between items-center"><h2 class="text-lg font-bold">По сотрудникам</h2><button onclick="showAddEmployeeModal()" class="text-blue-600"><i class="fas fa-plus mr-1"></i>Добавить</button></div>
+                <div class="p-6"><table class="w-full"><thead><tr class="text-left text-sm text-gray-500"><th>Сотрудник</th><th>Полисов</th><th>Доход</th><th>Расход</th><th>Прибыль</th></tr></thead><tbody id="employees-table"></tbody></table></div>
+            </div>
+            <div class="bg-white rounded-lg shadow">
+                <div class="px-6 py-4 border-b flex justify-between items-center"><h2 class="text-lg font-bold">Прочие расходы</h2><button onclick="showAddExpenseModal()" class="text-blue-600"><i class="fas fa-plus mr-1"></i>Добавить</button></div>
+                <div class="p-6"><div id="expenses-summary" class="space-y-3 mb-4"></div><hr class="my-4"><table class="w-full text-sm"><thead><tr class="text-left text-gray-500"><th>Дата</th><th>Категория</th><th>Описание</th><th>Сумма</th><th></th></tr></thead><tbody id="expenses-table"></tbody></table></div>
+            </div>
+        </div>
+    </div>
+    <div id="add-employee-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"><div class="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4"><h3 class="text-lg font-bold mb-4">Добавить сотрудника</h3><div class="space-y-4"><div><label class="block text-sm">Имя</label><input type="text" id="employee-name" class="w-full px-3 py-2 border rounded"></div><div><label class="block text-sm">Телефон</label><input type="tel" id="employee-phone" class="w-full px-3 py-2 border rounded"></div></div><div class="flex justify-end gap-2 mt-6"><button onclick="hideAddEmployeeModal()" class="px-4 py-2 bg-gray-300 rounded">Отмена</button><button onclick="addEmployee()" class="px-4 py-2 bg-blue-600 text-white rounded">Добавить</button></div></div></div>
+    <div id="add-expense-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"><div class="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4"><h3 class="text-lg font-bold mb-4">Добавить расход</h3><div class="space-y-4"><div><label class="block text-sm">Дата</label><input type="date" id="expense-date" class="w-full px-3 py-2 border rounded"></div><div><label class="block text-sm">Категория</label><select id="expense-category" class="w-full px-3 py-2 border rounded"><option value="salary">Зарплата</option><option value="rent">Аренда</option><option value="bonus">Премия</option><option value="maintenance">Техничка</option><option value="internet">Интернет</option><option value="other">Прочее</option></select></div><div><label class="block text-sm">Описание</label><input type="text" id="expense-description" class="w-full px-3 py-2 border rounded"></div><div><label class="block text-sm">Сумма</label><input type="number" id="expense-amount" class="w-full px-3 py-2 border rounded"></div></div><div class="flex justify-end gap-2 mt-6"><button onclick="hideAddExpenseModal()" class="px-4 py-2 bg-gray-300 rounded">Отмена</button><button onclick="addExpense()" class="px-4 py-2 bg-blue-600 text-white rounded">Добавить</button></div></div></div>
+    <script src="/analytics.js"></script>
+</body>
+</html>

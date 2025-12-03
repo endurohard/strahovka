@@ -15,9 +15,11 @@ class API {
     this.app = express();
 
     // Хранилище пользователей (в продакшене использовать базу данных)
+    const adminUser = process.env.ADMIN_USERNAME || 'admin';
+    const adminPass = process.env.ADMIN_PASSWORD || 'admin';
     this.users = {
-      'admin': {
-        password: 'admin', // В продакшене хранить хешированные пароли
+      [adminUser]: {
+        password: adminPass, // В продакшене хранить хешированные пароли
         role: 'admin'
       }
     };
@@ -95,12 +97,38 @@ class API {
     this.app.post('/api/whatsapp/disconnect', this.requireAuth.bind(this), this.disconnectWhatsApp.bind(this));
     this.app.post('/api/logout', this.requireAuth.bind(this), this.logout.bind(this));
     this.app.post('/api/admin/change-credentials', this.requireAuth.bind(this), this.changeAdminCredentials.bind(this));
+
+    // Управление пользователями
+    this.app.get('/api/users', this.requireAuth.bind(this), this.getUsers.bind(this));
+    this.app.post('/api/users', this.requireAuth.bind(this), this.createUser.bind(this));
+    this.app.put('/api/users/:id', this.requireAuth.bind(this), this.updateUser.bind(this));
+    this.app.delete('/api/users/:id', this.requireAuth.bind(this), this.deleteUser.bind(this));
+    this.app.post('/api/users/change-password', this.requireAuth.bind(this), this.changeUserPassword.bind(this));
+
     this.app.get('/api/message-template', this.requireAuth.bind(this), this.getMessageTemplate.bind(this));
     this.app.post('/api/message-template', this.requireAuth.bind(this), this.saveMessageTemplate.bind(this));
 
     // Upload Excel
     const upload = multer({ dest: 'uploads/' });
     this.app.post('/api/upload', this.requireAuth.bind(this), upload.single('file'), this.uploadExcel.bind(this));
+// Employees
+    this.app.get("/api/employees", this.requireAuth.bind(this), this.getEmployees.bind(this));
+    this.app.post("/api/employees", this.requireAuth.bind(this), this.createEmployee.bind(this));
+    this.app.put("/api/employees/:id", this.requireAuth.bind(this), this.updateEmployee.bind(this));
+    this.app.delete("/api/employees/:id", this.requireAuth.bind(this), this.deleteEmployee.bind(this));
+    
+    // Expenses
+    this.app.get("/api/expenses", this.requireAuth.bind(this), this.getExpenses.bind(this));
+    this.app.post("/api/expenses", this.requireAuth.bind(this), this.createExpense.bind(this));
+    this.app.delete("/api/expenses/:id", this.requireAuth.bind(this), this.deleteExpense.bind(this));
+    
+    // Analytics
+    this.app.get("/api/analytics", this.requireAuth.bind(this), this.getAnalytics.bind(this));
+    
+    // Analytics page
+    this.app.get("/analytics.html", (req, res) => {
+      res.sendFile(path.join(__dirname, "public", "analytics.html"));
+    });
   }
 
   // Вход
@@ -112,9 +140,29 @@ class API {
         return res.status(400).json({ error: 'Требуются логин и пароль' });
       }
 
-      const user = this.users[username];
+      let user = null;
+      let role = 'user';
 
-      if (!user || user.password !== password) {
+      // Сначала проверяем админа из env
+      const adminUser = process.env.ADMIN_USERNAME || 'admin';
+      const adminPass = process.env.ADMIN_PASSWORD || 'admin';
+
+      if (username === adminUser && password === adminPass) {
+        user = { username: adminUser, role: 'admin' };
+        role = 'admin';
+      } else {
+        // Проверяем пользователей из базы данных
+        const result = await this.db.pool.query(
+          'SELECT * FROM users WHERE username = $1 AND password = $2 AND active = true',
+          [username, password]
+        );
+        if (result.rows.length > 0) {
+          user = result.rows[0];
+          role = user.role || 'user';
+        }
+      }
+
+      if (!user) {
         return res.status(401).json({ error: 'Неверный логин или пароль' });
       }
 
@@ -122,10 +170,13 @@ class API {
       const token = this.generateToken();
       this.tokens.set(token, username);
 
+      // Сохраняем инфо о пользователе для requireAuth
+      this.users[username] = { password, role };
+
       res.json({
         token,
         username,
-        role: user.role
+        role
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -261,7 +312,7 @@ class API {
   // Создать клиента
   async createClient(req, res) {
     try {
-      const { name, phone, insurance, services, amount, start_date, expiration_date } = req.body;
+      const { name, phone, insurance, services, amount, insurance_expense, start_date, expiration_date, employee_id, employee_expense } = req.body;
 
       if (!name || !phone) {
         return res.status(400).json({ error: 'Требуются: name, phone' });
@@ -284,14 +335,14 @@ class API {
       reminderDate.setDate(reminderDate.getDate() - 7);
 
       const query = `
-        INSERT INTO clients (name, phone, phone_formatted, insurance, services, amount, start_date, expiration_date, reminder_date)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        INSERT INTO clients (name, phone, phone_formatted, insurance, services, amount, insurance_expense, start_date, expiration_date, reminder_date, employee_id, employee_expense)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING *;
       `;
 
       const result = await this.db.pool.query(query, [
-        name, phone, phone, insurance, services, amount,
-        startDate, expirationDate, reminderDate
+        name, phone, phone, insurance || null, services || null, amount || 0, insurance_expense || 0,
+        startDate, expirationDate, reminderDate, employee_id || null, employee_expense || 0
       ]);
 
       const newClient = result.rows[0];
@@ -343,7 +394,7 @@ class API {
         reminderDate.setDate(reminderDate.getDate() - 7);
 
         updates.push(`start_date = $${index++}, expiration_date = $${index++}, reminder_date = $${index++}`);
-        values.push(startDate, expirationDate, reminderDate);
+        values.push(startDate, expirationDate, reminderDate, employee_id || null, employee_expense || 0);
       }
 
       if (updates.length === 0) {
@@ -815,6 +866,200 @@ class API {
       });
     } catch (error) {
       console.error('❌ Ошибка сохранения шаблона:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+// ==================== EMPLOYEES API ====================
+  
+  async getEmployees(req, res) {
+    try {
+      const employees = await this.db.getEmployees();
+      res.json(employees);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async createEmployee(req, res) {
+    try {
+      const { name, phone } = req.body;
+      if (!name) {
+        return res.status(400).json({ error: "Name is required" });
+      }
+      const employee = await this.db.createEmployee(name, phone);
+      res.status(201).json(employee);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async updateEmployee(req, res) {
+    try {
+      const { id } = req.params;
+      const { name, phone, active } = req.body;
+      const employee = await this.db.updateEmployee(id, name, phone, active);
+      res.json(employee);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async deleteEmployee(req, res) {
+    try {
+      const { id } = req.params;
+      const employee = await this.db.deleteEmployee(id);
+      res.json({ message: "Employee deactivated", employee });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  // ==================== EXPENSES API ====================
+
+  async getExpenses(req, res) {
+    try {
+      const { start_date, end_date } = req.query;
+      const startDate = start_date || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0];
+      const endDate = end_date || new Date().toISOString().split("T")[0];
+      const expenses = await this.db.getExpenses(startDate, endDate);
+      res.json(expenses);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async createExpense(req, res) {
+    try {
+      const { expense_date, category, description, amount } = req.body;
+      if (!expense_date || !category || !amount) {
+        return res.status(400).json({ error: "expense_date, category and amount are required" });
+      }
+      const expense = await this.db.createExpense(expense_date, category, description, amount);
+      res.status(201).json(expense);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async deleteExpense(req, res) {
+    try {
+      const { id } = req.params;
+      const expense = await this.db.deleteExpense(id);
+      res.json({ message: "Expense deleted", expense });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  // ==================== ANALYTICS API ====================
+
+  async getAnalytics(req, res) {
+    try {
+      const { start_date, end_date } = req.query;
+      const startDate = start_date || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0];
+      const endDate = end_date || new Date().toISOString().split("T")[0];
+      const analytics = await this.db.getAnalytics(startDate, endDate);
+      res.json(analytics);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  // ==================== USERS API ====================
+
+  async getUsers(req, res) {
+    try {
+      const result = await this.db.pool.query('SELECT id, username, role, active, created_at FROM users ORDER BY id');
+      res.json(result.rows);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async createUser(req, res) {
+    try {
+      const { username, password, role } = req.body;
+      if (!username || !password) {
+        return res.status(400).json({ error: 'Требуются username и password' });
+      }
+      const result = await this.db.pool.query(
+        'INSERT INTO users (username, password, role) VALUES ($1, $2, $3) RETURNING id, username, role, active, created_at',
+        [username, password, role || 'user']
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (error) {
+      if (error.code === '23505') {
+        return res.status(400).json({ error: 'Пользователь с таким именем уже существует' });
+      }
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async updateUser(req, res) {
+    try {
+      const { id } = req.params;
+      const { username, password, role, active } = req.body;
+
+      let query, params;
+      if (password) {
+        query = 'UPDATE users SET username = $1, password = $2, role = $3, active = $4 WHERE id = $5 RETURNING id, username, role, active';
+        params = [username, password, role, active, id];
+      } else {
+        query = 'UPDATE users SET username = $1, role = $2, active = $3 WHERE id = $4 RETURNING id, username, role, active';
+        params = [username, role, active, id];
+      }
+
+      const result = await this.db.pool.query(query, params);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Пользователь не найден' });
+      }
+      res.json(result.rows[0]);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async deleteUser(req, res) {
+    try {
+      const { id } = req.params;
+      const result = await this.db.pool.query('DELETE FROM users WHERE id = $1 RETURNING *', [id]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Пользователь не найден' });
+      }
+      res.json({ message: 'Пользователь удален' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async changeUserPassword(req, res) {
+    try {
+      const { old_password, new_password } = req.body;
+      const username = req.user.username;
+
+      if (!old_password || !new_password) {
+        return res.status(400).json({ error: 'Требуются old_password и new_password' });
+      }
+
+      // Проверяем старый пароль
+      const checkResult = await this.db.pool.query(
+        'SELECT * FROM users WHERE username = $1 AND password = $2',
+        [username, old_password]
+      );
+
+      if (checkResult.rows.length === 0) {
+        return res.status(400).json({ error: 'Неверный текущий пароль' });
+      }
+
+      // Обновляем пароль
+      await this.db.pool.query(
+        'UPDATE users SET password = $1 WHERE username = $2',
+        [new_password, username]
+      );
+
+      res.json({ message: 'Пароль успешно изменен' });
+    } catch (error) {
       res.status(500).json({ error: error.message });
     }
   }

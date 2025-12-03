@@ -230,22 +230,21 @@ class Database {
   async generateDailyReminders(clientId, startDate, expirationDate) {
     try {
       const reminders = [];
-      const currentDate = new Date(startDate);
-      currentDate.setHours(0, 0, 0, 0);
-
       const endDate = new Date(expirationDate);
       endDate.setHours(0, 0, 0, 0);
 
-      // Генерируем напоминание на каждый день от start_date до expiration_date
-      while (currentDate <= endDate) {
+      // Generate reminders only for 5 days before expiration
+      // (5, 4, 3, 2, 1 days before and on expiration day - 6 reminders total)
+      for (let daysBeforeEnd = 5; daysBeforeEnd >= 0; daysBeforeEnd--) {
+        const reminderDate = new Date(endDate);
+        reminderDate.setDate(reminderDate.getDate() - daysBeforeEnd);
         reminders.push({
           client_id: clientId,
-          reminder_date: new Date(currentDate)
+          reminder_date: reminderDate
         });
-        currentDate.setDate(currentDate.getDate() + 1);
       }
 
-      // Вставляем все напоминания за один запрос
+      // Insert all reminders in one query
       if (reminders.length > 0) {
         const values = reminders.map((r, idx) =>
           `($${idx * 2 + 1}, $${idx * 2 + 2})`
@@ -260,10 +259,10 @@ class Database {
         `;
 
         await this.pool.query(query, flatValues);
-        console.log(`✅ Создано ${reminders.length} ежедневных напоминаний для клиента ${clientId}`);
+        console.log(`Created ${reminders.length} daily reminders for client ${clientId}`);
       }
     } catch (error) {
-      console.error(`❌ Ошибка генерации ежедневных напоминаний для клиента ${clientId}:`, error.message);
+      console.error(`Error generating daily reminders for client ${clientId}:`, error.message);
       throw error;
     }
   }
@@ -322,6 +321,159 @@ class Database {
     await this.pool.end();
     console.log('🔴 Соединение с базой данных закрыто');
   }
+
+  async getEmployees() {
+    const query = 'SELECT * FROM employees WHERE active = true ORDER BY name;';
+    const result = await this.pool.query(query);
+    return result.rows;
+  }
+
+  async createEmployee(name, phone = null) {
+    const query = 'INSERT INTO employees (name, phone) VALUES ($1, $2) RETURNING *;';
+    const result = await this.pool.query(query, [name, phone]);
+    return result.rows[0];
+  }
+
+  async updateEmployee(id, name, phone, active) {
+    const query = 'UPDATE employees SET name = $1, phone = $2, active = $3 WHERE id = $4 RETURNING *;';
+    const result = await this.pool.query(query, [name, phone, active, id]);
+    return result.rows[0];
+  }
+
+  async deleteEmployee(id) {
+    const query = 'UPDATE employees SET active = false WHERE id = $1 RETURNING *;';
+    const result = await this.pool.query(query, [id]);
+    return result.rows[0];
+  }
+
+  // ==================== EXPENSES ====================
+
+  async getExpenses(startDate, endDate) {
+    const query = `
+      SELECT * FROM expenses 
+      WHERE expense_date BETWEEN $1 AND $2 
+      ORDER BY expense_date DESC;
+    `;
+    const result = await this.pool.query(query, [startDate, endDate]);
+    return result.rows;
+  }
+
+  async createExpense(expenseDate, category, description, amount) {
+    const query = `
+      INSERT INTO expenses (expense_date, category, description, amount)
+      VALUES ($1, $2, $3, $4) RETURNING *;
+    `;
+    const result = await this.pool.query(query, [expenseDate, category, description, amount]);
+    return result.rows[0];
+  }
+
+  async deleteExpense(id) {
+    const query = 'DELETE FROM expenses WHERE id = $1 RETURNING *;';
+    const result = await this.pool.query(query, [id]);
+    return result.rows[0];
+  }
+
+  // ==================== ANALYTICS ====================
+
+  async getAnalytics(startDate, endDate) {
+    // Доходы и расходы от клиентов
+    const incomeQuery = `
+      SELECT
+        COALESCE(SUM(amount), 0) as total_income,
+        COALESCE(SUM(insurance_expense), 0) as total_insurance_expenses,
+        COALESCE(SUM(employee_expense), 0) as total_employee_expenses,
+        COUNT(*) as total_policies
+      FROM clients
+      WHERE start_date BETWEEN $1 AND $2;
+    `;
+    const incomeResult = await this.pool.query(incomeQuery, [startDate, endDate]);
+
+    // По сотрудникам - считаем прибыль с полисов (доход - страховая - сотруднику)
+    const byEmployeeQuery = `
+      SELECT
+        e.id,
+        e.name as employee_name,
+        COUNT(c.id) as policies_count,
+        COALESCE(SUM(c.amount), 0) as total_income,
+        COALESCE(SUM(c.employee_expense), 0) as total_expense,
+        COALESCE(SUM(c.amount - COALESCE(c.insurance_expense, 0) - COALESCE(c.employee_expense, 0)), 0) as profit
+      FROM employees e
+      LEFT JOIN clients c ON c.employee_id = e.id
+        AND c.start_date BETWEEN $1 AND $2
+      WHERE e.active = true
+      GROUP BY e.id, e.name
+      ORDER BY profit DESC;
+    `;
+    const byEmployeeResult = await this.pool.query(byEmployeeQuery, [startDate, endDate]);
+
+    // Расходы по категориям
+    const expensesQuery = `
+      SELECT
+        category,
+        COALESCE(SUM(amount), 0) as total
+      FROM expenses
+      WHERE expense_date BETWEEN $1 AND $2
+      GROUP BY category;
+    `;
+    const expensesResult = await this.pool.query(expensesQuery, [startDate, endDate]);
+
+    // Зарплаты (отдельно от прочих расходов)
+    const salaryQuery = `
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM expenses
+      WHERE expense_date BETWEEN $1 AND $2 AND category = 'salary';
+    `;
+    const salaryResult = await this.pool.query(salaryQuery, [startDate, endDate]);
+
+    // Прочие расходы (без зарплат)
+    const otherExpensesQuery = `
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM expenses
+      WHERE expense_date BETWEEN $1 AND $2 AND category != 'salary';
+    `;
+    const otherExpensesResult = await this.pool.query(otherExpensesQuery, [startDate, endDate]);
+
+    const totalIncome = parseFloat(incomeResult.rows[0].total_income) || 0;
+    const insuranceExpenses = parseFloat(incomeResult.rows[0].total_insurance_expenses) || 0;
+    const employeeExpenses = parseFloat(incomeResult.rows[0].total_employee_expenses) || 0;
+    const salaryExpenses = parseFloat(salaryResult.rows[0].total) || 0;
+    const otherExpenses = parseFloat(otherExpensesResult.rows[0].total) || 0;
+
+    // Валовая прибыль = Доход от клиентов - Страховым компаниям
+    const grossProfit = totalIncome - insuranceExpenses;
+
+    // Чистая прибыль = Валовая прибыль - Сотрудникам (с полисов) - Зарплаты - Прочие расходы
+    const netProfit = grossProfit - employeeExpenses - salaryExpenses - otherExpenses;
+
+    return {
+      period: { startDate, endDate },
+      summary: {
+        totalIncome: totalIncome,
+        totalPolicies: parseInt(incomeResult.rows[0].total_policies) || 0,
+        insuranceExpenses: insuranceExpenses,
+        grossProfit: grossProfit,
+        employeeExpenses: employeeExpenses,
+        salaryExpenses: salaryExpenses,
+        otherExpenses: otherExpenses,
+        netProfit: netProfit
+      },
+      byEmployee: byEmployeeResult.rows,
+      expensesByCategory: expensesResult.rows
+    };
+  }
+
+  async getClientsByPeriod(startDate, endDate) {
+    const query = `
+      SELECT c.*, e.name as employee_name
+      FROM clients c
+      LEFT JOIN employees e ON c.employee_id = e.id
+      WHERE c.start_date BETWEEN $1 AND $2
+      ORDER BY c.start_date DESC;
+    `;
+    const result = await this.pool.query(query, [startDate, endDate]);
+    return result.rows;
+  }
+
 }
 
 module.exports = Database;
