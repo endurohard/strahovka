@@ -237,14 +237,6 @@ class WhatsAppPuppeteer {
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       // Делаем скриншот для проверки
-      try {
-        const screenshot = await this.page.screenshot();
-        const screenshotPath = `/tmp/whatsapp_send_${Date.now()}.png`;
-        require('fs').writeFileSync(screenshotPath, screenshot);
-        console.log(`📸 Скриншот после отправки сохранен: ${screenshotPath}`);
-      } catch (screenshotError) {
-        console.log('⚠️  Не удалось сделать скриншот:', screenshotError.message);
-      }
 
       return true;
     } catch (error) {

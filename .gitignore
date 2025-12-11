@@ -6,3 +6,5 @@ uploads/
 *.log
 *.xlsx
 .DS_Store
+wwebjs_auth/
+wwebjs_cache/
