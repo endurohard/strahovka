@@ -37,6 +37,31 @@ class API {
     this.app.use(express.static('public'));
   }
 
+  // Нормализация номера телефона: 8xxx -> +7xxx, 7xxx -> +7xxx, 9xxx -> +79xxx
+  normalizePhone(phone) {
+    if (!phone) return phone;
+    // Убираем все нецифровые символы кроме +
+    let cleaned = phone.replace(/[^\d+]/g, '');
+
+    // Если начинается с 8 и длина 11 цифр - заменяем 8 на +7
+    if (cleaned.startsWith('8') && cleaned.length === 11) {
+      return '+7' + cleaned.substring(1);
+    }
+    // Если начинается с 7 (без +) и длина 11 цифр - добавляем +
+    if (cleaned.startsWith('7') && !cleaned.startsWith('+') && cleaned.length === 11) {
+      return '+' + cleaned;
+    }
+    // Если начинается с 9 и длина 10 цифр - добавляем +7
+    if (cleaned.startsWith('9') && cleaned.length === 10) {
+      return '+7' + cleaned;
+    }
+    // Если уже начинается с +7 - оставляем как есть
+    if (cleaned.startsWith('+7')) {
+      return cleaned;
+    }
+    return cleaned;
+  }
+
   // Middleware для проверки авторизации
   requireAuth(req, res, next) {
     const authHeader = req.headers.authorization;
@@ -312,7 +337,8 @@ class API {
   // Создать клиента
   async createClient(req, res) {
     try {
-      const { name, phone, insurance, services, amount, insurance_expense, start_date, expiration_date, employee_id, employee_expense } = req.body;
+      const { name, insurance, services, amount, insurance_expense, start_date, expiration_date, employee_id, employee_expense } = req.body;
+      const phone = this.normalizePhone(req.body.phone);
 
       if (!name || !phone) {
         return res.status(400).json({ error: 'Требуются: name, phone' });
@@ -360,7 +386,8 @@ class API {
   async updateClient(req, res) {
     try {
       const { id } = req.params;
-      const { name, phone, insurance, services, amount, start_date } = req.body;
+      const { name, phone, insurance, services, amount, start_date, expiration_date, insurance_expense, employee_id, employee_expense } = req.body;
+      console.log('updateClient:', { id, body: req.body });
 
       const updates = [];
       const values = [];
@@ -371,8 +398,9 @@ class API {
         values.push(name);
       }
       if (phone) {
+        const normalizedPhone = this.normalizePhone(phone);
         updates.push(`phone = $${index++}, phone_formatted = $${index++}`);
-        values.push(phone, phone);
+        values.push(normalizedPhone, normalizedPhone);
       }
       if (insurance) {
         updates.push(`insurance = $${index++}`);
@@ -382,19 +410,33 @@ class API {
         updates.push(`services = $${index++}`);
         values.push(services);
       }
-      if (amount) {
+      if (amount !== undefined && amount !== '') {
         updates.push(`amount = $${index++}`);
-        values.push(amount);
+        values.push(parseFloat(amount) || 0);
+      }
+      if (insurance_expense !== undefined && insurance_expense !== '') {
+        updates.push(`insurance_expense = $${index++}`);
+        values.push(parseFloat(insurance_expense) || 0);
+      }
+      if (employee_id !== undefined) {
+        updates.push(`employee_id = $${index++}`);
+        values.push(employee_id === '' ? null : (parseInt(employee_id) || null));
+      }
+      if (employee_expense !== undefined && employee_expense !== '') {
+        updates.push(`employee_expense = $${index++}`);
+        values.push(parseFloat(employee_expense) || 0);
       }
       if (start_date) {
-        const startDate = new Date(start_date);
-        const expirationDate = new Date(startDate);
-        expirationDate.setFullYear(expirationDate.getFullYear() + 1);
-        const reminderDate = new Date(expirationDate);
+        updates.push(`start_date = $${index++}`);
+        values.push(new Date(start_date));
+      }
+      if (expiration_date) {
+        const expDate = new Date(expiration_date);
+        const reminderDate = new Date(expDate);
         reminderDate.setDate(reminderDate.getDate() - 7);
 
-        updates.push(`start_date = $${index++}, expiration_date = $${index++}, reminder_date = $${index++}`);
-        values.push(startDate, expirationDate, reminderDate, employee_id || null, employee_expense || 0);
+        updates.push(`expiration_date = $${index++}, reminder_date = $${index++}`);
+        values.push(expDate, reminderDate);
       }
 
       if (updates.length === 0) {
@@ -411,6 +453,7 @@ class API {
         RETURNING *;
       `;
 
+      console.log('SQL Query:', query, 'Values:', values);
       const result = await this.db.pool.query(query, values);
 
       if (result.rows.length === 0) {
@@ -419,6 +462,7 @@ class API {
 
       res.json(result.rows[0]);
     } catch (error) {
+      console.error('updateClient error:', error);
       res.status(500).json({ error: error.message });
     }
   }
