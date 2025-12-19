@@ -36,7 +36,8 @@ class WhatsAppPuppeteer {
           '--no-zygote',
           '--disable-gpu',
           '--remote-debugging-port=9222', // Удаленная отладка
-          '--disable-blink-features=AutomationControlled'
+          '--disable-blink-features=AutomationControlled',
+          '--proxy-server=http://172.19.0.1:10819' // Прокси для обхода блокировок (через socat на хосте)
         ]
       });
 
