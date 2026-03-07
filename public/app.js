@@ -104,21 +104,30 @@ async function loadClients(page = 1) {
     currentPage = page;
     const search = document.getElementById('search').value;
     const sort = document.getElementById('sort').value;
+    const filter = document.getElementById('filter').value;
 
     try {
         const params = new URLSearchParams({
             page,
             limit: 50,
             search,
-            sort
+            sort,
+            filter
         });
 
         const res = await fetch(`${API_BASE}/api/clients?${params}`, {
             headers: getAuthHeaders()
         });
+
+        if (res.status === 401) {
+            localStorage.removeItem('authToken');
+            window.location.href = '/login';
+            return;
+        }
+
         const data = await res.json();
 
-        renderClientsTable(data.clients);
+        renderClientsTable(data.clients || []);
         renderPagination(data.page, data.pages, data.total);
 
         document.getElementById('showing-from').textContent = (data.page - 1) * 50 + 1;
@@ -160,23 +169,27 @@ function renderClientsTable(clients) {
             statusBadge = '<span class="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">Запланировано</span>';
         }
 
+        const safeName = escapeHtml(client.name);
+        const safePhone = escapeHtml(client.phone_formatted || client.phone);
+        const safeInsurance = escapeHtml(client.insurance) || '-';
+
         return `
             <tr class="hover:bg-gray-50">
-                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${client.name}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${client.phone_formatted || client.phone}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${client.insurance || '-'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${safeName}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${safePhone}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${safeInsurance}</td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatDate(client.start_date)}</td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatDate(client.expiration_date)}</td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatDate(client.reminder_date)}</td>
                 <td class="px-6 py-4 whitespace-nowrap">${statusBadge}</td>
                 <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button onclick="sendManualReminder(${client.id}, '${client.name.replace(/'/g, "\\'")}')" class="text-green-600 hover:text-green-900 mr-3" title="Отправить напоминание">
+                    <button onclick="sendManualReminder(${client.id}, ${JSON.stringify(client.name)})" class="text-green-600 hover:text-green-900 mr-3" title="Отправить напоминание">
                         <i class="fas fa-paper-plane"></i>
                     </button>
                     <button onclick="editClient(${client.id})" class="text-blue-600 hover:text-blue-900 mr-3" title="Редактировать">
                         <i class="fas fa-edit"></i>
                     </button>
-                    <button onclick="deleteClient(${client.id}, '${client.name.replace(/'/g, "\\'")}')" class="text-red-600 hover:text-red-900" title="Удалить">
+                    <button onclick="deleteClient(${client.id}, ${JSON.stringify(client.name)})" class="text-red-600 hover:text-red-900" title="Удалить">
                         <i class="fas fa-trash"></i>
                     </button>
                 </td>
@@ -301,6 +314,7 @@ async function uploadFile() {
         showNotification('Загрузка файла...', 'info');
         const res = await fetch(`${API_BASE}/api/upload`, {
             method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` },
             body: formData
         });
         const data = await res.json();
@@ -434,6 +448,17 @@ function debounceSearch() {
     }, 500);
 }
 
+// Экранирование HTML для защиты от XSS
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 // Форматирование даты
 function formatDate(dateString) {
     if (!dateString) return '-';
@@ -488,7 +513,7 @@ function toggleUserMenu() {
 // Закрытие меню при клике вне его
 document.addEventListener('click', (e) => {
     const menu = document.getElementById('userMenu');
-    const button = event.target.closest('button');
+    const button = e.target.closest('button');
 
     if (menu && !menu.contains(e.target) && (!button || !button.onclick || button.onclick.toString().indexOf('toggleUserMenu') === -1)) {
         menu.classList.add('hidden');

@@ -39,6 +39,10 @@ services:
       EXCEL_FILE_PATH: /data/clients.xlsx
       API_PORT: 10804
       TZ: Europe/Moscow
+      YANDEX_LOGIN: ${YANDEX_LOGIN:-}
+      YANDEX_PASSWORD: ${YANDEX_PASSWORD:-}
+      BACKUP_DIR: /app/backups
+      BACKUP_KEEP_DAYS: 7
     volumes:
       # Директория для Excel файлов
       - ./data:/data
@@ -50,6 +54,8 @@ services:
       - ./uploads:/app/uploads
       # Статические файлы (для быстрого обновления без пересборки)
       - ./public:/app/public
+      # Резервные копии БД
+      - ./backups:/app/backups
     ports:
       - "10804:10804"
       - "9222:9222"  # Порт для удаленной отладки Chrome

@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Резервное копирование</title>
+    <link rel="stylesheet" href="/tailwind.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gray-50">
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-5xl mx-auto px-4">
+            <div class="flex justify-between items-center py-4">
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="flex items-center space-x-3 hover:opacity-75">
+                        <img src="/logo.svg" alt="Logo" class="h-10 w-10">
+                        <h1 class="text-xl font-bold text-gray-800">Страховка</h1>
+                    </a>
+                    <span class="text-gray-400">/</span>
+                    <span class="text-gray-600 font-medium">Резервное копирование</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="text-gray-500 hover:text-gray-700 text-sm"><i class="fas fa-home mr-1"></i>Главная</a>
+                    <a href="/analytics.html" class="text-gray-500 hover:text-gray-700 text-sm"><i class="fas fa-chart-bar mr-1"></i>Аналитика</a>
+                    <a href="/settings.html" class="text-gray-500 hover:text-gray-700 text-sm"><i class="fas fa-cog mr-1"></i>Настройки</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-5xl mx-auto px-4 py-8">
+
+        <!-- Статус Яндекс.Диска -->
+        <div id="yandex-status-card" class="bg-white rounded-lg shadow p-6 mb-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div id="yandex-icon" class="w-10 h-10 rounded-full flex items-center justify-center bg-gray-100">
+                        <i class="fas fa-circle-notch fa-spin text-gray-400"></i>
+                    </div>
+                    <div>
+                        <p class="font-semibold text-gray-800">Яндекс.Диск</p>
+                        <p id="yandex-status-text" class="text-sm text-gray-500">Проверка подключения...</p>
+                    </div>
+                </div>
+                <button onclick="checkYandexStatus()" class="text-sm text-blue-600 hover:text-blue-800">
+                    <i class="fas fa-sync-alt mr-1"></i>Проверить
+                </button>
+            </div>
+        </div>
+
+        <!-- Действия -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <button onclick="createLocalBackup()" id="btn-local"
+                class="bg-white rounded-lg shadow p-6 text-left hover:shadow-md transition group">
+                <div class="flex items-center space-x-3 mb-3">
+                    <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center group-hover:bg-blue-200 transition">
+                        <i class="fas fa-database text-blue-600"></i>
+                    </div>
+                    <span class="font-semibold text-gray-800">Локальный бэкап</span>
+                </div>
+                <p class="text-sm text-gray-500">Создать резервную копию на сервере</p>
+            </button>
+
+            <button onclick="createAndUpload()" id="btn-yandex"
+                class="bg-white rounded-lg shadow p-6 text-left hover:shadow-md transition group">
+                <div class="flex items-center space-x-3 mb-3">
+                    <div class="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center group-hover:bg-red-200 transition">
+                        <i class="fas fa-cloud-upload-alt text-red-500"></i>
+                    </div>
+                    <span class="font-semibold text-gray-800">Бэкап + Яндекс.Диск</span>
+                </div>
+                <p class="text-sm text-gray-500">Создать и сразу загрузить в облако</p>
+            </button>
+
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center space-x-3 mb-3">
+                    <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-clock text-purple-600"></i>
+                    </div>
+                    <span class="font-semibold text-gray-800">Автобэкап</span>
+                </div>
+                <p class="text-sm text-gray-500">Каждый день в <strong>03:00</strong>, хранится <strong>7 дней</strong></p>
+            </div>
+        </div>
+
+        <!-- Прогресс-бар -->
+        <div id="progress-block" class="hidden bg-white rounded-lg shadow p-6 mb-6">
+            <div class="flex items-center space-x-3 mb-3">
+                <i id="progress-icon" class="fas fa-circle-notch fa-spin text-blue-600 text-xl"></i>
+                <span id="progress-text" class="font-medium text-gray-700">Создание резервной копии...</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+                <div id="progress-bar" class="bg-blue-600 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+            </div>
+            <p id="progress-detail" class="text-sm text-gray-500 mt-2"></p>
+        </div>
+
+        <!-- Список бэкапов -->
+        <div class="bg-white rounded-lg shadow">
+            <div class="px-6 py-4 border-b flex items-center justify-between">
+                <h2 class="text-lg font-bold text-gray-800">
+                    <i class="fas fa-list mr-2 text-gray-500"></i>Локальные резервные копии
+                </h2>
+                <button onclick="loadBackups()" class="text-sm text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-sync-alt mr-1"></i>Обновить
+                </button>
+            </div>
+            <div id="backups-list" class="divide-y">
+                <div class="px-6 py-8 text-center text-gray-400">
+                    <i class="fas fa-circle-notch fa-spin text-2xl mb-2"></i>
+                    <p>Загрузка...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Уведомления -->
+    <div id="notifications" class="fixed top-4 right-4 z-50 flex flex-col space-y-2"></div>
+
+    <script>
+        const API = window.location.origin;
+        const token = localStorage.getItem('authToken');
+        if (!token) window.location.href = '/login';
+        const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token };
+
+        // ---- Утилиты ----
+
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' Б';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' КБ';
+            return (bytes / 1024 / 1024).toFixed(2) + ' МБ';
+        }
+
+        function formatDate(iso) {
+            return new Date(iso).toLocaleString('ru-RU');
+        }
+
+        function notify(message, type = 'info') {
+            const colors = { success: 'bg-green-500', error: 'bg-red-500', info: 'bg-blue-500' };
+            const icons = { success: 'fa-check-circle', error: 'fa-times-circle', info: 'fa-info-circle' };
+            const id = Date.now();
+            const el = document.createElement('div');
+            el.id = 'n' + id;
+            el.className = colors[type] + ' text-white px-5 py-3 rounded-lg shadow-lg flex items-center space-x-3 max-w-sm';
+            el.innerHTML = '<i class="fas ' + icons[type] + '"></i><span class="flex-1">' + message + '</span><button onclick="this.parentElement.remove()" class="ml-2 hover:opacity-75"><i class="fas fa-times"></i></button>';
+            document.getElementById('notifications').appendChild(el);
+            setTimeout(() => { const e = document.getElementById('n' + id); if (e) e.remove(); }, 5000);
+        }
+
+        // ---- Прогресс ----
+
+        function showProgress(text, detail) {
+            document.getElementById('progress-block').classList.remove('hidden');
+            document.getElementById('progress-icon').className = 'fas fa-circle-notch fa-spin text-blue-600 text-xl';
+            document.getElementById('progress-text').textContent = text;
+            document.getElementById('progress-detail').textContent = detail || '';
+            document.getElementById('progress-bar').style.width = '30%';
+        }
+
+        function updateProgress(pct, text, detail) {
+            document.getElementById('progress-bar').style.width = pct + '%';
+            if (text) document.getElementById('progress-text').textContent = text;
+            if (detail) document.getElementById('progress-detail').textContent = detail;
+        }
+
+        function hideProgress(success, text) {
+            document.getElementById('progress-icon').className = success
+                ? 'fas fa-check-circle text-green-500 text-xl'
+                : 'fas fa-times-circle text-red-500 text-xl';
+            document.getElementById('progress-bar').style.width = '100%';
+            document.getElementById('progress-bar').className = (success ? 'bg-green-500' : 'bg-red-500') + ' h-2 rounded-full transition-all duration-500';
+            if (text) document.getElementById('progress-text').textContent = text;
+            document.getElementById('progress-detail').textContent = '';
+            setTimeout(() => {
+                document.getElementById('progress-block').classList.add('hidden');
+                document.getElementById('progress-bar').className = 'bg-blue-600 h-2 rounded-full transition-all duration-500';
+                document.getElementById('progress-bar').style.width = '0%';
+            }, 3000);
+        }
+
+        // ---- Яндекс.Диск статус ----
+
+        async function checkYandexStatus() {
+            const icon = document.getElementById('yandex-icon');
+            const text = document.getElementById('yandex-status-text');
+            icon.innerHTML = '<i class="fas fa-circle-notch fa-spin text-gray-400"></i>';
+            text.textContent = 'Проверка...';
+
+            try {
+                // Пробуем получить список бэкапов — косвенно проверяем сервер
+                // Для прямой проверки Яндекса делаем тестовый upload-yandex запрос
+                // Используем GET list как признак что сервер живой
+                const r = await fetch(API + '/api/backup/list', { headers });
+                if (!r.ok) throw new Error('Ошибка сервера');
+
+                // Проверяем настроен ли Яндекс через статус
+                const check = await fetch(API + '/api/backup/yandex-status', { headers });
+                if (check.ok) {
+                    const d = await check.json();
+                    if (d.connected) {
+                        icon.innerHTML = '<i class="fas fa-check-circle text-red-500 text-xl"></i>';
+                        icon.className = 'w-10 h-10 rounded-full flex items-center justify-center bg-red-50';
+                        text.textContent = 'Подключён — ' + (d.login || '');
+                    } else {
+                        icon.innerHTML = '<i class="fas fa-times-circle text-gray-400 text-xl"></i>';
+                        icon.className = 'w-10 h-10 rounded-full flex items-center justify-center bg-gray-100';
+                        text.textContent = d.error || 'Не настроен (добавьте YANDEX_LOGIN и YANDEX_PASSWORD в .env)';
+                    }
+                } else {
+                    icon.innerHTML = '<i class="fas fa-question-circle text-orange-400 text-xl"></i>';
+                    icon.className = 'w-10 h-10 rounded-full flex items-center justify-center bg-orange-50';
+                    text.textContent = 'Статус неизвестен';
+                }
+            } catch (e) {
+                icon.innerHTML = '<i class="fas fa-times-circle text-red-400 text-xl"></i>';
+                text.textContent = 'Ошибка: ' + e.message;
+            }
+        }
+
+        // ---- Список бэкапов ----
+
+        async function loadBackups() {
+            try {
+                const r = await fetch(API + '/api/backup/list', { headers });
+                const list = await r.json();
+                const el = document.getElementById('backups-list');
+
+                if (!list.length) {
+                    el.innerHTML = '<div class="px-6 py-10 text-center text-gray-400"><i class="fas fa-archive text-4xl mb-3"></i><p>Резервных копий нет</p><p class="text-sm mt-1">Создайте первую копию кнопкой выше</p></div>';
+                    return;
+                }
+
+                el.innerHTML = list.map((b, i) => `
+                    <div class="px-6 py-4 flex items-center justify-between hover:bg-gray-50">
+                        <div class="flex items-center space-x-4">
+                            <div class="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <i class="fas fa-file-archive text-blue-600 text-sm"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm font-medium text-gray-800">${b.filename}</p>
+                                <p class="text-xs text-gray-400">${formatDate(b.created_at)} &bull; ${formatSize(b.size)}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="uploadSingleToYandex('${b.filename}')"
+                                class="text-xs px-3 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition"
+                                title="Загрузить на Яндекс.Диск">
+                                <i class="fas fa-cloud-upload-alt mr-1"></i>Яндекс
+                            </button>
+                            <a href="${API}/api/backup/download/${b.filename}"
+                                class="text-xs px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition"
+                                title="Скачать">
+                                <i class="fas fa-download mr-1"></i>Скачать
+                            </a>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                document.getElementById('backups-list').innerHTML = '<div class="px-6 py-6 text-center text-red-500">Ошибка загрузки списка</div>';
+            }
+        }
+
+        // ---- Действия ----
+
+        async function createLocalBackup() {
+            showProgress('Создание резервной копии...', 'Выполняется pg_dump');
+            try {
+                const r = await fetch(API + '/api/backup/create', { method: 'POST', headers });
+                updateProgress(80, 'Завершение...');
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error);
+                hideProgress(true, 'Резервная копия создана: ' + d.filename);
+                notify('Создано: ' + d.filename + ' (' + formatSize(d.size) + ')', 'success');
+                loadBackups();
+            } catch (e) {
+                hideProgress(false, 'Ошибка: ' + e.message);
+                notify(e.message, 'error');
+            }
+        }
+
+        async function createAndUpload() {
+            showProgress('Создание резервной копии...', 'Выполняется pg_dump');
+            try {
+                updateProgress(30, 'Создание резервной копии...');
+                const r = await fetch(API + '/api/backup/upload-yandex', { method: 'POST', headers, body: JSON.stringify({}) });
+                updateProgress(80, 'Загрузка на Яндекс.Диск...');
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error);
+                updateProgress(100);
+                hideProgress(true, 'Загружено на Яндекс.Диск: ' + d.filename);
+                notify('Загружено на Яндекс.Диск!', 'success');
+                loadBackups();
+            } catch (e) {
+                hideProgress(false, 'Ошибка: ' + e.message);
+                notify(e.message, 'error');
+            }
+        }
+
+        async function uploadSingleToYandex(filename) {
+            showProgress('Загрузка на Яндекс.Диск...', filename);
+            try {
+                const r = await fetch(API + '/api/backup/upload-yandex', {
+                    method: 'POST', headers, body: JSON.stringify({ filename })
+                });
+                updateProgress(90);
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error);
+                hideProgress(true, 'Загружено на Яндекс.Диск');
+                notify('Файл загружен на Яндекс.Диск!', 'success');
+            } catch (e) {
+                hideProgress(false, 'Ошибка: ' + e.message);
+                notify(e.message, 'error');
+            }
+        }
+
+        // ---- Инициализация ----
+        checkYandexStatus();
+        loadBackups();
+    </script>
+</body>
+</html>

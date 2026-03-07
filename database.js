@@ -46,6 +46,43 @@ class Database {
         UNIQUE(client_id, reminder_date)
       );
 
+      CREATE TABLE IF NOT EXISTS employees (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        phone VARCHAR(20),
+        active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS expenses (
+        id SERIAL PRIMARY KEY,
+        category VARCHAR(100),
+        description VARCHAR(255),
+        amount DECIMAL(10, 2) NOT NULL,
+        expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(100) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        role VARCHAR(50) DEFAULT 'user',
+        active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      ALTER TABLE clients
+        ADD COLUMN IF NOT EXISTS insurance_expense DECIMAL(10,2) DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS employee_id INTEGER REFERENCES employees(id),
+        ADD COLUMN IF NOT EXISTS employee_expense DECIMAL(10,2) DEFAULT 0;
+
+      ALTER TABLE expenses
+        ADD COLUMN IF NOT EXISTS category VARCHAR(100);
+
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
+
       CREATE INDEX IF NOT EXISTS idx_reminder_date ON clients(reminder_date);
       CREATE INDEX IF NOT EXISTS idx_phone ON clients(phone_formatted);
       CREATE INDEX IF NOT EXISTS idx_daily_reminder_date ON daily_reminders(reminder_date);
@@ -233,16 +270,13 @@ class Database {
       const endDate = new Date(expirationDate);
       endDate.setHours(0, 0, 0, 0);
 
-      // Generate reminders only for 5 days before expiration
-      // (5, 4, 3, 2, 1 days before and on expiration day - 6 reminders total)
-      for (let daysBeforeEnd = 5; daysBeforeEnd >= 0; daysBeforeEnd--) {
-        const reminderDate = new Date(endDate);
-        reminderDate.setDate(reminderDate.getDate() - daysBeforeEnd);
-        reminders.push({
-          client_id: clientId,
-          reminder_date: reminderDate
-        });
-      }
+      // Generate reminder 14 days before expiration (1 reminder only)
+      const reminderDate = new Date(endDate);
+      reminderDate.setDate(reminderDate.getDate() - 14);
+      reminders.push({
+        client_id: clientId,
+        reminder_date: reminderDate
+      });
 
       // Insert all reminders in one query
       if (reminders.length > 0) {

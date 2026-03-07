@@ -7,6 +7,7 @@ const crypto = require('crypto');
 
 const Database = require('./database');
 const { readClientsFromExcel } = require('./excelReader');
+const { createBackup, createBackupAndUpload, uploadToYandexDisk, listBackups, getBackupPath } = require('./backup');
 
 class API {
   constructor(db, whatsapp) {
@@ -154,6 +155,16 @@ class API {
     this.app.get("/analytics.html", (req, res) => {
       res.sendFile(path.join(__dirname, "public", "analytics.html"));
     });
+
+    // Backup
+    this.app.get('/api/backup/list', this.requireAuth.bind(this), this.getBackupList.bind(this));
+    this.app.post('/api/backup/create', this.requireAuth.bind(this), this.createBackup.bind(this));
+    this.app.post('/api/backup/upload-yandex', this.requireAuth.bind(this), this.uploadBackupToYandex.bind(this));
+    this.app.get('/api/backup/yandex-status', this.requireAuth.bind(this), this.getYandexStatus.bind(this));
+    this.app.get('/api/backup/download/:filename', this.requireAuth.bind(this), this.downloadBackup.bind(this));
+    this.app.get('/backup.html', (req, res) => {
+      res.sendFile(path.join(__dirname, 'public', 'backup.html'));
+    });
   }
 
   // Вход
@@ -289,19 +300,32 @@ class API {
   // Получить всех клиентов
   async getClients(req, res) {
     try {
-      const { page = 1, limit = 50, search = '', sort = 'reminder_date' } = req.query;
+      const { page = 1, limit = 50, search = '', sort = 'reminder_date', filter = '' } = req.query;
       const offset = (page - 1) * limit;
+
+      const allowedSorts = { reminder_date: 'ASC', name: 'ASC', created_at: 'DESC' };
+      const sortColumn = allowedSorts[sort] ? sort : 'reminder_date';
+      const sortDir = allowedSorts[sortColumn];
+
+      let filterClause = '';
+      if (filter === 'upcoming') {
+        filterClause = `AND reminder_date BETWEEN NOW() AND NOW() + INTERVAL '30 days'`;
+      } else if (filter === 'pending') {
+        filterClause = `AND reminder_date <= NOW() AND (last_reminder_sent IS NULL OR last_reminder_sent::date < NOW()::date)`;
+      }
 
       let query = `
         SELECT * FROM clients
-        WHERE name ILIKE $1 OR phone_formatted ILIKE $1
-        ORDER BY ${sort} DESC
+        WHERE (name ILIKE $1 OR phone_formatted ILIKE $1)
+        ${filterClause}
+        ORDER BY ${sortColumn} ${sortDir}
         LIMIT $2 OFFSET $3;
       `;
 
       const countQuery = `
         SELECT COUNT(*) FROM clients
-        WHERE name ILIKE $1 OR phone_formatted ILIKE $1;
+        WHERE (name ILIKE $1 OR phone_formatted ILIKE $1)
+        ${filterClause};
       `;
 
       const clients = await this.db.pool.query(query, [`%${search}%`, limit, offset]);
@@ -356,9 +380,9 @@ class API {
         expirationDate.setFullYear(expirationDate.getFullYear() + 1);
       }
 
-      // Дата первого напоминания - за 7 дней до окончания (используется для обратной совместимости)
+      // Дата напоминания - за 14 дней до окончания
       const reminderDate = new Date(expirationDate);
-      reminderDate.setDate(reminderDate.getDate() - 7);
+      reminderDate.setDate(reminderDate.getDate() - 14);
 
       const query = `
         INSERT INTO clients (name, phone, phone_formatted, insurance, services, amount, insurance_expense, start_date, expiration_date, reminder_date, employee_id, employee_expense)
@@ -433,7 +457,7 @@ class API {
       if (expiration_date) {
         const expDate = new Date(expiration_date);
         const reminderDate = new Date(expDate);
-        reminderDate.setDate(reminderDate.getDate() - 7);
+        reminderDate.setDate(reminderDate.getDate() - 14);
 
         updates.push(`expiration_date = $${index++}, reminder_date = $${index++}`);
         values.push(expDate, reminderDate);
@@ -1103,6 +1127,106 @@ class API {
       );
 
       res.json({ message: 'Пароль успешно изменен' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  // ==================== BACKUP API ====================
+
+  async getYandexStatus(req, res) {
+    const login = process.env.YANDEX_LOGIN;
+    const password = process.env.YANDEX_PASSWORD;
+
+    if (!login || !password) {
+      return res.json({ connected: false, error: 'Не настроен (YANDEX_LOGIN/YANDEX_PASSWORD отсутствуют в .env)' });
+    }
+
+    const https = require('https');
+    const auth = Buffer.from(`${login}:${password}`).toString('base64');
+
+    try {
+      const status = await new Promise((resolve) => {
+        const req = https.request({
+          hostname: 'webdav.yandex.ru',
+          path: '/',
+          method: 'PROPFIND',
+          headers: { 'Authorization': `Basic ${auth}`, 'Depth': '0' }
+        }, res => resolve(res.statusCode));
+        req.on('error', () => resolve(0));
+        req.end();
+      });
+
+      if (status === 207) {
+        res.json({ connected: true, login });
+      } else if (status === 401) {
+        res.json({ connected: false, error: 'Неверный логин или пароль (401)' });
+      } else {
+        res.json({ connected: false, error: `Неожиданный статус: ${status}` });
+      }
+    } catch (error) {
+      res.json({ connected: false, error: error.message });
+    }
+  }
+
+  async getBackupList(req, res) {
+    try {
+      const backups = listBackups();
+      res.json(backups);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async createBackup(req, res) {
+    try {
+      const result = await createBackup();
+      res.json({ message: 'Резервная копия создана', ...result });
+    } catch (error) {
+      console.error('Ошибка создания резервной копии:', error.message);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async uploadBackupToYandex(req, res) {
+    try {
+      const yandexConfigured = process.env.YANDEX_LOGIN && process.env.YANDEX_PASSWORD;
+      if (!yandexConfigured) {
+        return res.status(400).json({ error: 'YANDEX_LOGIN и YANDEX_PASSWORD не заданы в .env' });
+      }
+
+      // Если передан filename — загружаем существующую копию, иначе создаём новую
+      const { filename } = req.body;
+      let result;
+
+      if (filename) {
+        const filepath = getBackupPath(filename);
+        if (!filepath) return res.status(404).json({ error: 'Файл не найден' });
+        const { url } = await uploadToYandexDisk(filepath);
+        result = { filename, yandex_url: url };
+      } else {
+        result = await createBackupAndUpload();
+      }
+
+      res.json({ message: 'Резервная копия загружена на Яндекс.Диск', ...result });
+    } catch (error) {
+      console.error('Ошибка загрузки на Яндекс.Диск:', error.message);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async downloadBackup(req, res) {
+    try {
+      const { filename } = req.params;
+      const filepath = getBackupPath(filename);
+
+      if (!filepath) {
+        return res.status(404).json({ error: 'Файл не найден' });
+      }
+
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.sendFile(filepath);
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

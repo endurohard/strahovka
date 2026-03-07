@@ -72,11 +72,14 @@ async function addEmployee() {
     const name = document.getElementById("employee-name").value;
     const phone = document.getElementById("employee-phone").value;
     if (!name) { alert("Введите имя"); return; }
-    await fetch(API_URL + "/api/employees", { method: "POST", headers, body: JSON.stringify({ name, phone }) });
-    hideAddEmployeeModal();
-    document.getElementById("employee-name").value = "";
-    document.getElementById("employee-phone").value = "";
-    loadAnalytics();
+    try {
+        const r = await fetch(API_URL + "/api/employees", { method: "POST", headers, body: JSON.stringify({ name, phone }) });
+        if (!r.ok) { const d = await r.json(); alert(d.error || "Ошибка добавления сотрудника"); return; }
+        hideAddEmployeeModal();
+        document.getElementById("employee-name").value = "";
+        document.getElementById("employee-phone").value = "";
+        loadAnalytics();
+    } catch (err) { console.error(err); alert("Ошибка соединения с сервером"); }
 }
 
 async function addExpense() {
@@ -85,11 +88,14 @@ async function addExpense() {
     const description = document.getElementById("expense-description").value;
     const amount = parseFloat(document.getElementById("expense-amount").value);
     if (!expense_date || !amount) { alert("Заполните дату и сумму"); return; }
-    await fetch(API_URL + "/api/expenses", { method: "POST", headers, body: JSON.stringify({ expense_date, category, description, amount }) });
-    hideAddExpenseModal();
-    document.getElementById("expense-description").value = "";
-    document.getElementById("expense-amount").value = "";
-    loadAnalytics();
+    try {
+        const r = await fetch(API_URL + "/api/expenses", { method: "POST", headers, body: JSON.stringify({ expense_date, category, description, amount }) });
+        if (!r.ok) { const d = await r.json(); alert(d.error || "Ошибка добавления расхода"); return; }
+        hideAddExpenseModal();
+        document.getElementById("expense-description").value = "";
+        document.getElementById("expense-amount").value = "";
+        loadAnalytics();
+    } catch (err) { console.error(err); alert("Ошибка соединения с сервером"); }
 }
 
 async function deleteExpense(id) {

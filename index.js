@@ -7,6 +7,7 @@ const Database = require('./database');
 const WhatsAppPuppeteer = require('./whatsappPuppeteer');
 const { readClientsFromExcel } = require('./excelReader');
 const API = require('./api');
+const { createBackup, createBackupAndUpload } = require('./backup');
 
 class InsuranceReminderService {
   constructor() {
@@ -186,7 +187,25 @@ class InsuranceReminderService {
       await this.showStats();
     });
 
+    // Резервное копирование базы данных каждый день в 03:00
+    cron.schedule('0 3 * * *', async () => {
+      console.log('\nАвтоматическое резервное копирование БД...');
+      try {
+        const yandexConfigured = process.env.YANDEX_LOGIN && process.env.YANDEX_PASSWORD;
+        if (yandexConfigured) {
+          const result = await createBackupAndUpload();
+          console.log(`Резервная копия создана и загружена на Яндекс.Диск: ${result.filename} (${Math.round(result.size / 1024)} КБ)`);
+        } else {
+          const result = await createBackup();
+          console.log(`Резервная копия создана локально: ${result.filename} (${Math.round(result.size / 1024)} КБ)`);
+        }
+      } catch (error) {
+        console.error('Ошибка резервного копирования:', error.message);
+      }
+    });
+
     console.log('✅ Планировщик настроен:');
+    console.log('   - 03:00 - резервное копирование БД');
     console.log('   - 09:00 - обновление данных из Excel');
     console.log('   - 10:00 - проверка и отправка напоминаний');
   }
