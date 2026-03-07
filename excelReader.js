@@ -80,9 +80,9 @@ function readClientsFromExcel(filePath) {
         client.expirationDate = new Date(client.dateObject);
         client.expirationDate.setFullYear(client.expirationDate.getFullYear() + 1);
 
-        // Вычисляем дату напоминания (за 7 дней до окончания)
+        // Вычисляем дату напоминания (за 14 дней до окончания)
         client.reminderDate = new Date(client.expirationDate);
-        client.reminderDate.setDate(client.reminderDate.getDate() - 7);
+        client.reminderDate.setDate(client.reminderDate.getDate() - 14);
       }
 
       clients.push(client);

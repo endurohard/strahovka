@@ -11,13 +11,38 @@
     <nav class="bg-white shadow-lg">
         <div class="max-w-7xl mx-auto px-4">
             <div class="flex justify-between items-center py-4">
-                <a href="/" class="flex items-center space-x-3">
-                    <img src="/logo.svg" alt="Logo" class="h-12 w-12">
-                    <h1 class="text-xl font-bold text-gray-800">Аналитика</h1>
-                </a>
                 <div class="flex items-center space-x-4">
-                    <a href="/" class="text-blue-600"><i class="fas fa-home mr-1"></i> Главная</a>
-                    <a href="/settings.html" class="text-gray-600"><i class="fas fa-cog mr-1"></i> Настройки</a>
+                    <a href="/" class="flex items-center space-x-3 hover:opacity-75">
+                        <img src="/logo.svg" alt="Logo" class="h-12 w-12">
+                        <h1 class="text-xl font-bold text-gray-800">Страховка - Напоминания</h1>
+                    </a>
+                    <span class="text-gray-400">→</span>
+                    <span class="text-gray-600">Аналитика</span>
+                </div>
+                <div class="relative">
+                    <button onclick="toggleUserMenu()" class="flex items-center space-x-2 hover:bg-gray-100 px-3 py-2 rounded-lg transition">
+                        <i class="fas fa-user-circle text-gray-600 text-xl"></i>
+                        <span id="username-display" class="text-sm font-medium text-gray-700">Пользователь</span>
+                        <i class="fas fa-chevron-down text-gray-500 text-xs"></i>
+                    </button>
+                    <div id="userMenu" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-2 z-10">
+                        <a href="/" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                            <i class="fas fa-home mr-2"></i> Главная
+                        </a>
+                        <a href="/analytics.html" class="block px-4 py-2 text-sm bg-gray-100 text-gray-900 font-medium">
+                            <i class="fas fa-chart-bar mr-2"></i> Аналитика
+                        </a>
+                        <a href="/settings.html" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                            <i class="fas fa-cog mr-2"></i> Настройки WhatsApp
+                        </a>
+                        <a href="/backup.html" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                            <i class="fas fa-database mr-2"></i> Резервное копирование
+                        </a>
+                        <hr class="my-2">
+                        <a href="#" onclick="logout(); return false;" class="block px-4 py-2 text-sm text-red-600 hover:bg-red-50">
+                            <i class="fas fa-sign-out-alt mr-2"></i> Выход
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
@@ -61,5 +86,27 @@
     <div id="add-employee-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"><div class="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4"><h3 class="text-lg font-bold mb-4">Добавить сотрудника</h3><div class="space-y-4"><div><label class="block text-sm">Имя</label><input type="text" id="employee-name" class="w-full px-3 py-2 border rounded"></div><div><label class="block text-sm">Телефон</label><input type="tel" id="employee-phone" class="w-full px-3 py-2 border rounded"></div></div><div class="flex justify-end gap-2 mt-6"><button onclick="hideAddEmployeeModal()" class="px-4 py-2 bg-gray-300 rounded">Отмена</button><button onclick="addEmployee()" class="px-4 py-2 bg-blue-600 text-white rounded">Добавить</button></div></div></div>
     <div id="add-expense-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"><div class="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4"><h3 class="text-lg font-bold mb-4">Добавить расход</h3><div class="space-y-4"><div><label class="block text-sm">Дата</label><input type="date" id="expense-date" class="w-full px-3 py-2 border rounded"></div><div><label class="block text-sm">Категория</label><select id="expense-category" class="w-full px-3 py-2 border rounded"><option value="salary">Зарплата</option><option value="rent">Аренда</option><option value="bonus">Премия</option><option value="maintenance">Техничка</option><option value="internet">Интернет</option><option value="other">Прочее</option></select></div><div><label class="block text-sm">Описание</label><input type="text" id="expense-description" class="w-full px-3 py-2 border rounded"></div><div><label class="block text-sm">Сумма</label><input type="number" id="expense-amount" class="w-full px-3 py-2 border rounded"></div></div><div class="flex justify-end gap-2 mt-6"><button onclick="hideAddExpenseModal()" class="px-4 py-2 bg-gray-300 rounded">Отмена</button><button onclick="addExpense()" class="px-4 py-2 bg-blue-600 text-white rounded">Добавить</button></div></div></div>
     <script src="/analytics.js"></script>
+    <script>
+        // Имя пользователя в шапке
+        const _u = localStorage.getItem('username');
+        if (_u) document.getElementById('username-display').textContent = _u;
+
+        function toggleUserMenu() {
+            document.getElementById('userMenu').classList.toggle('hidden');
+        }
+        function logout() {
+            fetch('/api/logout', { method: 'POST', headers }).finally(() => {
+                localStorage.removeItem('authToken');
+                localStorage.removeItem('username');
+                window.location.href = '/login';
+            });
+        }
+        document.addEventListener('click', (e) => {
+            const menu = document.getElementById('userMenu');
+            if (menu && !menu.contains(e.target) && !e.target.closest('button[onclick="toggleUserMenu()"]')) {
+                menu.classList.add('hidden');
+            }
+        });
+    </script>
 </body>
 </html>
