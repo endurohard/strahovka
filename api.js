@@ -7,7 +7,7 @@ const crypto = require('crypto');
 
 const Database = require('./database');
 const { readClientsFromExcel } = require('./excelReader');
-const { createBackup, createBackupAndUpload, uploadToYandexDisk, listBackups, getBackupPath } = require('./backup');
+const { createBackup, createBackupAndUpload, restoreBackup, uploadToYandexDisk, listBackups, getBackupPath } = require('./backup');
 
 class API {
   constructor(db, whatsapp) {
@@ -160,6 +160,7 @@ class API {
     this.app.get('/api/backup/list', this.requireAuth.bind(this), this.getBackupList.bind(this));
     this.app.post('/api/backup/create', this.requireAuth.bind(this), this.createBackup.bind(this));
     this.app.post('/api/backup/upload-yandex', this.requireAuth.bind(this), this.uploadBackupToYandex.bind(this));
+    this.app.post('/api/backup/restore/:filename', this.requireAuth.bind(this), this.restoreBackup.bind(this));
     this.app.get('/api/backup/yandex-status', this.requireAuth.bind(this), this.getYandexStatus.bind(this));
     this.app.get('/api/backup/download/:filename', this.requireAuth.bind(this), this.downloadBackup.bind(this));
     this.app.get('/backup.html', (req, res) => {
@@ -1133,6 +1134,31 @@ class API {
   }
 
   // ==================== BACKUP API ====================
+
+  async restoreBackup(req, res) {
+    try {
+      const { filename } = req.params;
+      const filepath = getBackupPath(filename);
+
+      if (!filepath) {
+        return res.status(404).json({ error: 'Файл резервной копии не найден' });
+      }
+
+      console.log(`Восстановление БД из резервной копии: ${filename}`);
+      const result = await restoreBackup(filepath);
+
+      console.log(`БД восстановлена: таблиц ${result.tables}, строк ${result.rows}`);
+      res.json({
+        message: 'База данных успешно восстановлена',
+        filename,
+        tables: result.tables,
+        rows: result.rows
+      });
+    } catch (error) {
+      console.error('Ошибка восстановления:', error.message);
+      res.status(500).json({ error: error.message });
+    }
+  }
 
   async getYandexStatus(req, res) {
     const login = process.env.YANDEX_LOGIN;

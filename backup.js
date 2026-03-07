@@ -224,9 +224,57 @@ async function createBackupAndUpload() {
   return { ...backup, yandex_url: url };
 }
 
+/**
+ * Восстанавливает базу данных из SQL-файла резервной копии
+ * @param {string} filepath - путь к .sql файлу
+ * @returns {Promise<{tables, rows}>}
+ */
+async function restoreBackup(filepath) {
+  const content = fs.readFileSync(filepath, 'utf8');
+
+  // Разбиваем на отдельные SQL-выражения по «;\n» (безопасно для наших INSERT)
+  const statements = content
+    .split(/;\s*\n/)
+    .map(s => s.trim())
+    .filter(s => s.length > 0 && !s.startsWith('--') && !s.startsWith('SET'));
+
+  const pool = getPool();
+  const client = await pool.connect();
+
+  let tablesRestored = 0;
+  let rowsInserted = 0;
+
+  try {
+    await client.query('BEGIN');
+
+    // Временно отключаем проверку внешних ключей для корректного TRUNCATE
+    await client.query('SET session_replication_role = replica');
+
+    for (const stmt of statements) {
+      if (!stmt) continue;
+      await client.query(stmt);
+
+      if (stmt.toUpperCase().startsWith('TRUNCATE')) tablesRestored++;
+      if (stmt.toUpperCase().startsWith('INSERT')) rowsInserted++;
+    }
+
+    await client.query('SET session_replication_role = DEFAULT');
+    await client.query('COMMIT');
+
+    return { tables: tablesRestored, rows: rowsInserted };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw new Error(`Ошибка восстановления: ${error.message}`);
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
+
 module.exports = {
   createBackup,
   createBackupAndUpload,
+  restoreBackup,
   uploadToYandexDisk,
   listBackups,
   deleteOldBackups,

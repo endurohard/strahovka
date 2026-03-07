@@ -247,6 +247,11 @@
                                 title="Загрузить на Яндекс.Диск">
                                 <i class="fas fa-cloud-upload-alt mr-1"></i>Яндекс
                             </button>
+                            <button onclick="restoreFromBackup('${b.filename}')"
+                                class="text-xs px-3 py-1.5 bg-orange-50 text-orange-600 rounded-lg hover:bg-orange-100 transition"
+                                title="Восстановить БД из этой копии">
+                                <i class="fas fa-undo mr-1"></i>Восстановить
+                            </button>
                             <a href="${API}/api/backup/download/${b.filename}"
                                 class="text-xs px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition"
                                 title="Скачать">
@@ -290,6 +295,29 @@
                 hideProgress(true, 'Загружено на Яндекс.Диск: ' + d.filename);
                 notify('Загружено на Яндекс.Диск!', 'success');
                 loadBackups();
+            } catch (e) {
+                hideProgress(false, 'Ошибка: ' + e.message);
+                notify(e.message, 'error');
+            }
+        }
+
+        async function restoreFromBackup(filename) {
+            if (!confirm(
+                'ВНИМАНИЕ!\n\n' +
+                'Восстановление из резервной копии:\n' +
+                '• Удалит ВСЕ текущие данные\n' +
+                '• Заменит их данными из: ' + filename + '\n\n' +
+                'Продолжить?'
+            )) return;
+
+            showProgress('Восстановление базы данных...', filename);
+            try {
+                const r = await fetch(API + '/api/backup/restore/' + filename, { method: 'POST', headers });
+                updateProgress(80, 'Завершение транзакции...');
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error);
+                hideProgress(true, 'БД восстановлена: ' + d.rows + ' строк');
+                notify('База данных восстановлена из ' + filename, 'success');
             } catch (e) {
                 hideProgress(false, 'Ошибка: ' + e.message);
                 notify(e.message, 'error');
