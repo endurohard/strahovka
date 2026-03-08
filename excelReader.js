@@ -49,10 +49,10 @@ function readClientsFromExcel(filePath) {
     // Преобразование в массив массивов
     const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
-    // Пропускаем первые 2 строки (пустая и заголовки)
+    // В файле нет строк-заголовков — данные начинаются с row[0]
     const clients = [];
 
-    for (let i = 2; i < data.length; i++) {
+    for (let i = 0; i < data.length; i++) {
       const row = data[i];
 
       // Пропускаем пустые строки
@@ -66,8 +66,8 @@ function readClientsFromExcel(filePath) {
         date: row[1], // дата в формате Excel serial
         dateObject: null,
         name: row[2] || '',
-        phone: row[3] || '',
-        phoneFormatted: formatPhoneNumber(row[3]),
+        phone: row[3] || null,
+        phoneFormatted: formatPhoneNumber(row[3]) || null,
         insurance: row[4] || '',
         services: row[5] || '',
         amount: amount,

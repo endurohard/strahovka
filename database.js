@@ -165,9 +165,9 @@ class Database {
 
     for (const client of clients) {
       try {
-        // Пропускаем клиентов без обязательных полей
-        if (!client.name || !client.dateObject || !client.phoneFormatted) {
-          console.warn(`⚠️  Пропускаю клиента: недостаточно данных`, client);
+        // Пропускаем клиентов без имени или даты
+        if (!client.name || !client.dateObject) {
+          console.warn(`⚠️  Пропускаю клиента: нет имени или даты`, client);
           errors++;
           continue;
         }
