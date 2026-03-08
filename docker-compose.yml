@@ -44,6 +44,12 @@ services:
       BACKUP_DIR: /app/backups
       BACKUP_KEEP_DAYS: 7
     volumes:
+      # JS исходники (обновляются через git pull)
+      - ./api.js:/app/api.js
+      - ./backup.js:/app/backup.js
+      - ./database.js:/app/database.js
+      - ./index.js:/app/index.js
+      - ./excelReader.js:/app/excelReader.js
       # Директория для Excel файлов
       - ./data:/data
       # Сохранение сессии WhatsApp

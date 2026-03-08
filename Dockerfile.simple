@@ -1,0 +1,22 @@
+FROM node:18
+
+# Установка Chromium через менеджер пакетов Node.js
+WORKDIR /app
+
+# Копируем package.json и package-lock.json
+COPY package*.json ./
+
+# Устанавливаем зависимости
+RUN npm ci --only=production
+
+# Копируем исходный код
+COPY . .
+
+# Создаём директорию для данных
+RUN mkdir -p /data
+
+# Создаём директорию для сессии WhatsApp
+RUN mkdir -p .wwebjs_auth && chmod 777 .wwebjs_auth
+
+# Запуск приложения
+CMD ["node", "index.js"]
