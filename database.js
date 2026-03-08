@@ -106,9 +106,11 @@ class Database {
     const query = `
       INSERT INTO clients (
         excel_id, name, phone, phone_formatted, insurance,
-        services, amount, insurance_expense, employee_expense,
+        services, amount, insurance_expense, employee_expense, employee_id,
         start_date, expiration_date, reminder_date, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+        CASE WHEN $9 > 0 THEN (SELECT id FROM employees WHERE name = $13 AND active = true LIMIT 1) ELSE NULL END,
+        $10, $11, $12, NOW())
       ON CONFLICT (phone_formatted, start_date)
       DO UPDATE SET
         name = EXCLUDED.name,
@@ -117,6 +119,7 @@ class Database {
         amount = EXCLUDED.amount,
         insurance_expense = EXCLUDED.insurance_expense,
         employee_expense = EXCLUDED.employee_expense,
+        employee_id = EXCLUDED.employee_id,
         expiration_date = EXCLUDED.expiration_date,
         reminder_date = EXCLUDED.reminder_date,
         updated_at = NOW()
@@ -135,7 +138,8 @@ class Database {
       client.employeeExpense || 0,
       client.dateObject,
       client.expirationDate,
-      client.reminderDate
+      client.reminderDate,
+      client.employeeName || 'Зухра'
     ];
 
     try {
