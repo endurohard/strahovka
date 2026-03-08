@@ -58,6 +58,9 @@ function readClientsFromExcel(filePath) {
       // Пропускаем пустые строки
       if (!row[1] && !row[2] && !row[3]) continue;
 
+      const amount = parseFloat(row[6]) || 0;
+      const grossProfit = parseFloat(row[7]) || 0; // в.п. — комиссия агентства
+
       const client = {
         id: row[0] || i - 1, // номер по порядку
         date: row[1], // дата в формате Excel serial
@@ -67,7 +70,10 @@ function readClientsFromExcel(filePath) {
         phoneFormatted: formatPhoneNumber(row[3]),
         insurance: row[4] || '',
         services: row[5] || '',
-        amount: row[6] || 0,
+        amount: amount,
+        grossProfit: grossProfit,
+        insuranceExpense: amount - grossProfit, // что уходит страховой компании
+        employeeExpense: parseFloat(row[8]) || 0, // расход на сотрудника
         expirationDate: null, // дата окончания страховки (через год)
         reminderDate: null // дата напоминания (за неделю до окончания)
       };

@@ -106,14 +106,17 @@ class Database {
     const query = `
       INSERT INTO clients (
         excel_id, name, phone, phone_formatted, insurance,
-        services, amount, start_date, expiration_date, reminder_date, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+        services, amount, insurance_expense, employee_expense,
+        start_date, expiration_date, reminder_date, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
       ON CONFLICT (phone_formatted, start_date)
       DO UPDATE SET
         name = EXCLUDED.name,
         insurance = EXCLUDED.insurance,
         services = EXCLUDED.services,
         amount = EXCLUDED.amount,
+        insurance_expense = EXCLUDED.insurance_expense,
+        employee_expense = EXCLUDED.employee_expense,
         expiration_date = EXCLUDED.expiration_date,
         reminder_date = EXCLUDED.reminder_date,
         updated_at = NOW()
@@ -128,6 +131,8 @@ class Database {
       client.insurance,
       client.services,
       client.amount,
+      client.insuranceExpense || 0,
+      client.employeeExpense || 0,
       client.dateObject,
       client.expirationDate,
       client.reminderDate
