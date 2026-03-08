@@ -41,8 +41,8 @@ async function loadAnalytics() {
 
         // Таблица сотрудников
         document.getElementById("employees-table").innerHTML = d.byEmployee.map(x =>
-            "<tr class='border-t'><td class='py-2'>" + x.employee_name + "</td><td>" + x.policies_count + "</td><td class='text-green-600'>" + formatMoney(x.total_income) + "</td><td class='text-orange-600'>" + formatMoney(x.total_expense) + "</td><td class='text-purple-600 font-bold'>" + formatMoney(x.profit) + "</td></tr>"
-        ).join("") || "<tr><td colspan='5' class='text-gray-500 py-4'>Нет данных</td></tr>";
+            "<tr class='border-t'><td class='py-2 font-medium'>" + x.employee_name + "</td><td class='text-gray-500'>" + x.policies_count + "</td><td class='text-orange-600 font-bold'>" + formatMoney(x.total_expense) + "</td></tr>"
+        ).join("") || "<tr><td colspan='3' class='text-gray-500 py-4'>Нет данных</td></tr>";
 
         // Сводка расходов по категориям
         document.getElementById("expenses-summary").innerHTML = d.expensesByCategory.map(x =>
