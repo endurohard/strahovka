@@ -45,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Первичная проверка статуса
     refreshStatus();
+    loadUsers();
 
     // Автоматическое обновление статуса каждые 10 секунд
     statusCheckInterval = setInterval(refreshStatus, 10000);
@@ -687,6 +688,115 @@ async function resetMessageTemplate() {
 
     document.getElementById('message-template').value = defaultTemplate;
     showNotification('Шаблон сброшен. Нажмите "Сохранить" для применения', 'info');
+}
+
+// ==================== ПОЛЬЗОВАТЕЛИ ====================
+
+async function loadUsers() {
+    try {
+        const res = await fetch(`${API_BASE}/api/users`, { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const users = await res.json();
+        const container = document.getElementById('users-list');
+        if (!users.length) {
+            container.innerHTML = '<p class="text-gray-400 text-sm">Нет пользователей</p>';
+            return;
+        }
+        container.innerHTML = users.map(u => `
+            <div class="flex items-center justify-between py-2 border-b last:border-0">
+                <div>
+                    <p class="text-sm font-medium text-gray-800">${u.username}</p>
+                    <p class="text-xs text-gray-400">${u.role === 'admin' ? 'Администратор' : 'Пользователь'}</p>
+                </div>
+                <button onclick="deleteUser(${u.id}, '${u.username}')" class="text-red-400 hover:text-red-600 text-xs">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        `).join('');
+    } catch (e) {
+        console.error('Ошибка загрузки пользователей:', e);
+    }
+}
+
+function showAddUserModal() {
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+    modal.innerHTML = `
+        <div class="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-user-plus text-blue-600 mr-2"></i>Новый пользователь</h2>
+                <button onclick="this.closest('.fixed').remove()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Логин</label>
+                    <input type="text" id="new-user-login" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Логин">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Пароль</label>
+                    <input type="password" id="new-user-password" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Минимум 6 символов">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Роль</label>
+                    <select id="new-user-role" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="user">Пользователь</option>
+                        <option value="admin">Администратор</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 mt-5">
+                <button onclick="this.closest('.fixed').remove()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">Отмена</button>
+                <button onclick="addUser(this)" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><i class="fas fa-save mr-1"></i>Создать</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+async function addUser(btn) {
+    const login = document.getElementById('new-user-login').value.trim();
+    const password = document.getElementById('new-user-password').value;
+    const role = document.getElementById('new-user-role').value;
+
+    if (!login || !password) { showNotification('Заполните логин и пароль', 'error'); return; }
+    if (password.length < 6) { showNotification('Пароль минимум 6 символов', 'error'); return; }
+
+    try {
+        const res = await fetch(`${API_BASE}/api/users`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ username: login, password, role })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            showNotification(`Пользователь "${login}" создан`, 'success');
+            btn.closest('.fixed').remove();
+            loadUsers();
+        } else {
+            showNotification(data.error || 'Ошибка создания', 'error');
+        }
+    } catch (e) {
+        showNotification('Ошибка подключения', 'error');
+    }
+}
+
+async function deleteUser(id, username) {
+    if (!confirm(`Удалить пользователя "${username}"?`)) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/users/${id}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+        });
+        if (res.ok) {
+            showNotification(`Пользователь "${username}" удалён`, 'success');
+            loadUsers();
+        } else {
+            const d = await res.json();
+            showNotification(d.error || 'Ошибка удаления', 'error');
+        }
+    } catch (e) {
+        showNotification('Ошибка подключения', 'error');
+    }
 }
 
 // Очистка интервалов при уходе со страницы
