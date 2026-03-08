@@ -435,9 +435,87 @@ async function sendManualReminder(id, name) {
     }
 }
 
-// Редактирование клиента (упрощенная версия)
-function editClient(id) {
-    showNotification('Функция редактирования в разработке', 'info');
+// Редактирование клиента
+async function editClient(id) {
+    try {
+        // Загружаем данные клиента
+        const res = await fetch(`${API_BASE}/api/clients/${id}`, {
+            headers: getAuthHeaders()
+        });
+
+        if (!res.ok) {
+            showNotification('Ошибка загрузки данных клиента', 'error');
+            return;
+        }
+
+        const client = await res.json();
+
+        // Загружаем список сотрудников
+        const empRes = await fetch(`${API_BASE}/api/employees`, {
+            headers: getAuthHeaders()
+        });
+        const employees = await empRes.json();
+        const select = document.getElementById('edit-employee-select');
+        select.innerHTML = '<option value="">-- Не выбран --</option>';
+        employees.forEach(emp => {
+            const selected = emp.id === client.employee_id ? 'selected' : '';
+            select.innerHTML += `<option value="${emp.id}" ${selected}>${emp.name}</option>`;
+        });
+
+        // Заполняем форму данными клиента
+        document.getElementById('edit-client-id').value = client.id;
+        document.getElementById('edit-name').value = client.name || '';
+        document.getElementById('edit-phone').value = client.phone || '';
+        document.getElementById('edit-insurance').value = client.insurance || '';
+        document.getElementById('edit-start-date').value = client.start_date ? client.start_date.split('T')[0] : '';
+        document.getElementById('edit-expiration-date').value = client.expiration_date ? client.expiration_date.split('T')[0] : '';
+        document.getElementById('edit-amount').value = client.amount || '';
+        document.getElementById('edit-insurance-expense').value = client.insurance_expense || '';
+        document.getElementById('edit-employee-expense').value = client.employee_expense || '';
+
+        // Показываем модальное окно
+        document.getElementById('edit-client-modal').classList.remove('hidden');
+
+    } catch (error) {
+        console.error('Ошибка загрузки клиента:', error);
+        showNotification('Ошибка загрузки данных клиента', 'error');
+    }
+}
+
+function hideEditClientModal() {
+    document.getElementById('edit-client-modal').classList.add('hidden');
+    document.getElementById('edit-client-form').reset();
+}
+
+async function updateClient(event) {
+    event.preventDefault();
+
+    const formData = new FormData(event.target);
+    const data = Object.fromEntries(formData);
+    const clientId = data.id;
+    delete data.id; // Удаляем id из body, т.к. он передается в URL
+
+    try {
+        const res = await fetch(`${API_BASE}/api/clients/${clientId}`, {
+            method: 'PUT',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(data)
+        });
+
+        const result = await res.json();
+
+        if (res.ok) {
+            showNotification('Клиент обновлен', 'success');
+            hideEditClientModal();
+            loadStats();
+            loadClients();
+        } else {
+            showNotification(result.error || 'Ошибка обновления', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка обновления:', error);
+        showNotification('Ошибка обновления клиента', 'error');
+    }
 }
 
 // Поиск с задержкой
