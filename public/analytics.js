@@ -104,4 +104,10 @@ async function deleteExpense(id) {
     loadAnalytics();
 }
 
-setThisMonth();
+// По умолчанию — с начала года до сегодня
+(function() {
+    const n = new Date();
+    document.getElementById("start_date").value = new Date(n.getFullYear(), 0, 1).toISOString().split("T")[0];
+    document.getElementById("end_date").value = n.toISOString().split("T")[0];
+    loadAnalytics();
+})();
