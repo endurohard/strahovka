@@ -4,6 +4,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { hashPassword, comparePassword } = require('./utils/passwordHelper');
+const { createAuthLimiter } = require('./utils/rateLimiter');
 
 const Database = require('./database');
 const { readClientsFromExcel } = require('./excelReader');
@@ -33,7 +35,7 @@ class API {
   }
 
   setupMiddleware() {
-    this.app.use(cors());
+    this.app.use(cors({ origin: process.env.CORS_ORIGIN || '*', credentials: true }));
     this.app.use(express.json());
     this.app.use(express.static('public'));
   }
@@ -72,12 +74,20 @@ class API {
     }
 
     const token = authHeader.substring(7);
-    const username = this.tokens.get(token);
+    const tokenData = this.tokens.get(token);
 
-    if (!username) {
+    if (!tokenData) {
       return res.status(401).json({ error: 'Недействительный токен' });
     }
 
+    // Проверяем срок действия токена (24 часа)
+    const TOKEN_TTL = 24 * 60 * 60 * 1000;
+    if (Date.now() - tokenData.createdAt > TOKEN_TTL) {
+      this.tokens.delete(token);
+      return res.status(401).json({ error: 'Токен истёк, войдите заново' });
+    }
+
+    const username = tokenData.username;
     req.user = { username, ...this.users[username] };
     next();
   }
@@ -89,7 +99,8 @@ class API {
 
   setupRoutes() {
     // Публичные маршруты (без авторизации)
-    this.app.post('/api/login', this.login.bind(this));
+    const authLimiter = createAuthLimiter();
+    this.app.post('/api/login', authLimiter.middleware(), this.login.bind(this));
     this.app.get('/api/verify-token', this.verifyToken.bind(this));
     this.app.get('/login', (req, res) => {
       res.sendFile(path.join(__dirname, 'public', 'login.html'));
@@ -135,7 +146,7 @@ class API {
     this.app.post('/api/message-template', this.requireAuth.bind(this), this.saveMessageTemplate.bind(this));
 
     // Upload Excel
-    const upload = multer({ dest: 'uploads/' });
+    const upload = multer({ dest: 'uploads/', limits: { fileSize: 10 * 1024 * 1024 }, fileFilter: (req, file, cb) => { const ext = path.extname(file.originalname).toLowerCase(); cb(null, ['.xlsx', '.xls'].includes(ext)); } });
     this.app.post('/api/upload', this.requireAuth.bind(this), upload.single('file'), this.uploadExcel.bind(this));
 // Employees
     this.app.get("/api/employees", this.requireAuth.bind(this), this.getEmployees.bind(this));
@@ -190,12 +201,16 @@ class API {
       } else {
         // Проверяем пользователей из базы данных
         const result = await this.db.pool.query(
-          'SELECT * FROM users WHERE username = $1 AND password = $2 AND active = true',
-          [username, password]
+          'SELECT * FROM users WHERE username = $1 AND active = true',
+          [username]
         );
         if (result.rows.length > 0) {
-          user = result.rows[0];
-          role = user.role || 'user';
+          const dbUser = result.rows[0];
+          const passwordMatch = await comparePassword(password, dbUser.password);
+          if (passwordMatch) {
+            user = dbUser;
+            role = user.role || 'user';
+          }
         }
       }
 
@@ -205,7 +220,7 @@ class API {
 
       // Генерируем токен
       const token = this.generateToken();
-      this.tokens.set(token, username);
+      this.tokens.set(token, { username, createdAt: Date.now() });
 
       // Сохраняем инфо о пользователе для requireAuth
       this.users[username] = { password, role };
@@ -229,12 +244,19 @@ class API {
     }
 
     const token = authHeader.substring(7);
-    const username = this.tokens.get(token);
+    const tokenData = this.tokens.get(token);
 
-    if (!username) {
+    if (!tokenData) {
       return res.status(401).json({ valid: false });
     }
 
+    const TOKEN_TTL = 24 * 60 * 60 * 1000;
+    if (Date.now() - tokenData.createdAt > TOKEN_TTL) {
+      this.tokens.delete(token);
+      return res.status(401).json({ valid: false });
+    }
+
+    const username = tokenData.username;
     res.json({
       valid: true,
       username,
@@ -1052,9 +1074,10 @@ class API {
       if (!username || !password) {
         return res.status(400).json({ error: 'Требуются username и password' });
       }
+      const hashedPassword = await hashPassword(password);
       const result = await this.db.pool.query(
         'INSERT INTO users (username, password, role) VALUES ($1, $2, $3) RETURNING id, username, role, active, created_at',
-        [username, password, role || 'user']
+        [username, hashedPassword, role || 'user']
       );
       res.status(201).json(result.rows[0]);
     } catch (error) {
@@ -1072,8 +1095,9 @@ class API {
 
       let query, params;
       if (password) {
+        const hashedPassword = await hashPassword(password);
         query = 'UPDATE users SET username = $1, password = $2, role = $3, active = $4 WHERE id = $5 RETURNING id, username, role, active';
-        params = [username, password, role, active, id];
+        params = [username, hashedPassword, role, active, id];
       } else {
         query = 'UPDATE users SET username = $1, role = $2, active = $3 WHERE id = $4 RETURNING id, username, role, active';
         params = [username, role, active, id];
@@ -1113,18 +1137,24 @@ class API {
 
       // Проверяем старый пароль
       const checkResult = await this.db.pool.query(
-        'SELECT * FROM users WHERE username = $1 AND password = $2',
-        [username, old_password]
+        'SELECT * FROM users WHERE username = $1',
+        [username]
       );
 
       if (checkResult.rows.length === 0) {
+        return res.status(400).json({ error: 'Пользователь не найден' });
+      }
+
+      const passwordMatch = await comparePassword(old_password, checkResult.rows[0].password);
+      if (!passwordMatch) {
         return res.status(400).json({ error: 'Неверный текущий пароль' });
       }
 
       // Обновляем пароль
+      const hashedNewPassword = await hashPassword(new_password);
       await this.db.pool.query(
         'UPDATE users SET password = $1 WHERE username = $2',
-        [new_password, username]
+        [hashedNewPassword, username]
       );
 
       res.json({ message: 'Пароль успешно изменен' });

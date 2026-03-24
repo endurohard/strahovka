@@ -64,7 +64,8 @@ function readClientsFromExcel(filePath) {
       const client = {
         id: row[0] || i - 1, // номер по порядку
         date: row[1], // дата в формате Excel serial
-        dateObject: null,
+        issueDate: null, // дата оформления страховки (из Excel)
+        dateObject: null, // дата начала действия страховки (issueDate + 4 дня)
         name: row[2] || '',
         phone: row[3] || null,
         phoneFormatted: formatPhoneNumber(row[3]) || null,
@@ -74,21 +75,29 @@ function readClientsFromExcel(filePath) {
         grossProfit: grossProfit,
         insuranceExpense: amount - grossProfit, // что уходит страховой компании
         employeeExpense: parseFloat(row[8]) || 0, // расход на сотрудника
-        expirationDate: null, // дата окончания страховки (через год)
-        reminderDate: null // дата напоминания (за неделю до окончания)
+        expirationDate: null, // дата окончания страховки (через год - 1 день)
+        reminderDate: null // дата напоминания (за 7 дней до окончания)
       };
 
       // Преобразуем дату из Excel serial в обычную дату
       if (typeof client.date === 'number') {
-        client.dateObject = excelSerialToDate(client.date);
+        // Дата из Excel - это дата оформления
+        client.issueDate = excelSerialToDate(client.date);
 
-        // Вычисляем дату окончания страховки (через год)
+        // Дата начала действия страховки = дата оформления + 4 дня
+        client.dateObject = new Date(client.issueDate);
+        client.dateObject.setDate(client.dateObject.getDate() + 4);
+
+        // Дата окончания страховки = дата начала + 1 год - 1 день
+        // Пример: начало 10.03.2024 → окончание 09.03.2025
         client.expirationDate = new Date(client.dateObject);
         client.expirationDate.setFullYear(client.expirationDate.getFullYear() + 1);
+        client.expirationDate.setDate(client.expirationDate.getDate() - 1);
 
-        // Вычисляем дату напоминания (за 14 дней до окончания)
+        // Дата напоминания = за 7 дней до окончания
+        // Пример: окончание 09.03.2025 → напоминание 02.03.2025
         client.reminderDate = new Date(client.expirationDate);
-        client.reminderDate.setDate(client.reminderDate.getDate() - 14);
+        client.reminderDate.setDate(client.reminderDate.getDate() - 7);
       }
 
       clients.push(client);

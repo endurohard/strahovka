@@ -27,6 +27,7 @@ class Database {
         insurance VARCHAR(100),
         services TEXT,
         amount DECIMAL(10, 2),
+        issue_date DATE,
         start_date DATE NOT NULL,
         expiration_date DATE NOT NULL,
         reminder_date DATE NOT NULL,
@@ -75,7 +76,8 @@ class Database {
       ALTER TABLE clients
         ADD COLUMN IF NOT EXISTS insurance_expense DECIMAL(10,2) DEFAULT 0,
         ADD COLUMN IF NOT EXISTS employee_id INTEGER REFERENCES employees(id),
-        ADD COLUMN IF NOT EXISTS employee_expense DECIMAL(10,2) DEFAULT 0;
+        ADD COLUMN IF NOT EXISTS employee_expense DECIMAL(10,2) DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS issue_date DATE;
 
       ALTER TABLE expenses
         ADD COLUMN IF NOT EXISTS category VARCHAR(100);
@@ -102,15 +104,17 @@ class Database {
    * Добавление или обновление клиента
    * @param {Object} client - данные клиента
    */
-  async upsertClient(client) {
-    const query = `
+async upsertClient(client) {
+    const hasPhone = client.phoneFormatted && client.phoneFormatted.length > 0;
+
+    const query = hasPhone ? `
       INSERT INTO clients (
         excel_id, name, phone, phone_formatted, insurance,
         services, amount, insurance_expense, employee_expense, employee_id,
-        start_date, expiration_date, reminder_date, updated_at
+        issue_date, start_date, expiration_date, reminder_date, updated_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-        CASE WHEN $9 > 0 THEN (SELECT id FROM employees WHERE name = $13 AND active = true LIMIT 1) ELSE NULL END,
-        $10, $11, $12, NOW())
+        CASE WHEN $9::numeric > 0 THEN (SELECT id FROM employees WHERE name = $14 AND active = true LIMIT 1) ELSE NULL END,
+        $10, $11, $12, $13, NOW())
       ON CONFLICT (phone_formatted, start_date)
       DO UPDATE SET
         name = EXCLUDED.name,
@@ -120,6 +124,28 @@ class Database {
         insurance_expense = EXCLUDED.insurance_expense,
         employee_expense = EXCLUDED.employee_expense,
         employee_id = EXCLUDED.employee_id,
+        issue_date = EXCLUDED.issue_date,
+        expiration_date = EXCLUDED.expiration_date,
+        reminder_date = EXCLUDED.reminder_date,
+        updated_at = NOW()
+      RETURNING id;
+    ` : `
+      INSERT INTO clients (
+        excel_id, name, phone, phone_formatted, insurance,
+        services, amount, insurance_expense, employee_expense, employee_id,
+        issue_date, start_date, expiration_date, reminder_date, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+        CASE WHEN $9::numeric > 0 THEN (SELECT id FROM employees WHERE name = $14 AND active = true LIMIT 1) ELSE NULL END,
+        $10, $11, $12, $13, NOW())
+      ON CONFLICT (name, start_date) WHERE phone_formatted IS NULL OR phone_formatted = ''
+      DO UPDATE SET
+        insurance = EXCLUDED.insurance,
+        services = EXCLUDED.services,
+        amount = EXCLUDED.amount,
+        insurance_expense = EXCLUDED.insurance_expense,
+        employee_expense = EXCLUDED.employee_expense,
+        employee_id = EXCLUDED.employee_id,
+        issue_date = EXCLUDED.issue_date,
         expiration_date = EXCLUDED.expiration_date,
         reminder_date = EXCLUDED.reminder_date,
         updated_at = NOW()
@@ -136,6 +162,7 @@ class Database {
       client.amount,
       client.insuranceExpense || 0,
       client.employeeExpense || 0,
+      client.issueDate,
       client.dateObject,
       client.expirationDate,
       client.reminderDate,
@@ -279,9 +306,9 @@ class Database {
       const endDate = new Date(expirationDate);
       endDate.setHours(0, 0, 0, 0);
 
-      // Generate reminder 14 days before expiration (1 reminder only)
+      // Generate reminder 7 days before expiration (1 reminder only)
       const reminderDate = new Date(endDate);
-      reminderDate.setDate(reminderDate.getDate() - 14);
+      reminderDate.setDate(reminderDate.getDate() - 7);
       reminders.push({
         client_id: clientId,
         reminder_date: reminderDate
