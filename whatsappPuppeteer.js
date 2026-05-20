@@ -24,8 +24,22 @@ class WhatsAppPuppeteer {
     try {
       console.log('🚀 Запуск браузера для WhatsApp Web...');
 
+      // Определяем путь к Chrome/Chromium
+      let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      if (!executablePath) {
+        // Пробуем использовать Chrome из Puppeteer если установлен
+        try {
+          executablePath = puppeteer.executablePath();
+        } catch (e) {
+          executablePath = '/usr/bin/chromium';
+        }
+      }
+
+      console.log(`🔧 Используем браузер: ${executablePath}`);
+
       this.browser = await puppeteer.launch({
         headless: true, // Headless режим для Docker
+        executablePath: executablePath,
         userDataDir: this.sessionDir, // Сохраняем сессию
         args: [
           '--no-sandbox',
@@ -37,7 +51,6 @@ class WhatsAppPuppeteer {
           '--disable-gpu',
           '--remote-debugging-port=9222', // Удаленная отладка
           '--disable-blink-features=AutomationControlled',
-          '--proxy-server=http://172.19.0.1:10819' // Прокси для обхода блокировок (через socat на хосте)
         ]
       });
 
@@ -128,20 +141,39 @@ class WhatsAppPuppeteer {
    * Запуск проверки авторизации в фоне
    */
   startAuthCheck() {
+    let qrExpiredCount = 0;
     // Проверяем авторизацию каждые 5 секунд
     const checkInterval = setInterval(async () => {
       try {
-        const isAuthenticated = await this.page.evaluate(() => {
+        const state = await this.page.evaluate(() => {
           const hasChats = document.querySelector('[role="grid"]') !== null ||
                           document.querySelector('[data-testid="chat-list"]') !== null ||
                           document.querySelector('#pane-side') !== null;
-          return hasChats;
+          const hasQR = document.querySelector('[data-testid="qrcode"]') !== null ||
+                       document.querySelector('canvas') !== null;
+          const hasReloadBtn = document.querySelector('[data-testid="intro-qrcode-reload-btn"]') !== null;
+          const bodyText = document.body ? document.body.innerText : '';
+          const qrExpired = hasReloadBtn || bodyText.includes('Select to reload') || bodyText.includes('Reload QR');
+          return { hasChats, hasQR, qrExpired };
         });
 
-        if (isAuthenticated) {
+        if (state.hasChats) {
           console.log('✅ WhatsApp авторизован!');
           this.isReady = true;
           clearInterval(checkInterval);
+          qrExpiredCount = 0;
+        } else if (state.qrExpired || (!state.hasQR && !state.hasChats)) {
+          qrExpiredCount++;
+          if (qrExpiredCount >= 2) {
+            qrExpiredCount = 0;
+            console.log('🔄 QR-код истёк, обновляю страницу...');
+            await this.page.goto('https://web.whatsapp.com', {
+              waitUntil: 'domcontentloaded',
+              timeout: 30000
+            });
+          }
+        } else {
+          qrExpiredCount = 0;
         }
       } catch (error) {
         // Игнорируем ошибки проверки
@@ -232,12 +264,51 @@ class WhatsAppPuppeteer {
       await this.page.keyboard.press('Enter');
 
       console.log(`   ✅ Enter нажат`);
-      console.log(`✅ Сообщение отправлено на ${phoneNumber}`);
 
       // Ждем завершения отправки
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 3000));
 
-      // Делаем скриншот для проверки
+      // Проверяем: не появился ли попап об ошибке (номер не в WhatsApp)
+      const errorPopup = await this.page.evaluate(() => {
+        const popup = document.querySelector('[data-testid="popup-contents"]') ||
+                      document.querySelector('[role="alertdialog"]') ||
+                      document.querySelector('[data-testid="alert-popup"]');
+        if (popup) return popup.innerText || popup.textContent || 'popup';
+        // Проверяем текст страницы на наличие ошибок WhatsApp
+        const bodyText = document.body ? document.body.innerText : '';
+        if (bodyText.includes('invalid') || bodyText.includes('Phone number shared via url is invalid')) {
+          return 'invalid phone';
+        }
+        return null;
+      });
+
+      if (errorPopup) {
+        throw new Error(`Номер не зарегистрирован в WhatsApp или ошибка: ${errorPopup.substring(0, 100)}`);
+      }
+
+      // Проверяем, что поле ввода очистилось (сообщение реально отправлено)
+      const composeBoxSelectors = [
+        '[data-testid="conversation-compose-box-input"]',
+        'div[contenteditable="true"][data-tab="10"]',
+        'footer div[contenteditable="true"]'
+      ];
+
+      const boxEmpty = await this.page.evaluate((sels) => {
+        for (const sel of sels) {
+          const el = document.querySelector(sel);
+          if (el) {
+            const text = (el.innerText || el.textContent || '').trim();
+            return text === '' || text === '\n';
+          }
+        }
+        return true; // Если поле не найдено — считаем успехом
+      }, composeBoxSelectors);
+
+      if (!boxEmpty) {
+        throw new Error('Сообщение не отправлено — текст остался в поле ввода');
+      }
+
+      console.log(`✅ Сообщение отправлено на ${phoneNumber}`);
 
       return true;
     } catch (error) {

@@ -16,6 +16,7 @@ class InsuranceReminderService {
     this.excelFilePath = process.env.EXCEL_FILE_PATH || '/data/clients.xlsx';
     this.isRunning = false;
     this.api = null;
+    this.queueTimeouts = [];
   }
 
   /**
@@ -105,7 +106,9 @@ class InsuranceReminderService {
   }
 
   /**
-   * Проверка и отправка напоминаний
+   * Построение дневной очереди напоминаний.
+   * Окно: 10:00–20:00 по МСК (TZ контейнера = Europe/Moscow).
+   * Шаг по умолчанию — 120 сек; сжимается до 60 сек, если очередь не помещается в окно.
    */
   async checkAndSendReminders() {
     if (!this.isRunning) {
@@ -113,11 +116,10 @@ class InsuranceReminderService {
       return;
     }
 
-    console.log('\n⏰ Проверка ежедневных напоминаний...');
+    console.log('\n⏰ Построение очереди ежедневных напоминаний...');
     console.log(`   Текущее время: ${new Date().toLocaleString('ru-RU')}`);
 
     try {
-      // Получаем ежедневные напоминания на сегодня
       const reminders = await this.db.getDailyReminders();
 
       if (reminders.length === 0) {
@@ -125,46 +127,106 @@ class InsuranceReminderService {
         return;
       }
 
-      console.log(`   📨 Найдено ${reminders.length} напоминаний для отправки`);
+      const WINDOW_SEC = 10 * 60 * 60;   // 10:00–20:00 = 600 мин = 36000 сек
+      const DEFAULT_GAP_SEC = 120;       // 2 минуты между клиентами
+      const MIN_GAP_SEC = 60;            // сжимаем до 1 минуты при перегрузке
+      const N = reminders.length;
 
-      // Отправляем напоминания через WhatsApp
-      for (const reminder of reminders) {
-        try {
-          // Создаем сообщение с учетом количества дней до окончания
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-
-          const expirationDate = new Date(reminder.expiration_date);
-          expirationDate.setHours(0, 0, 0, 0);
-
-          const daysLeft = Math.ceil((expirationDate - today) / (1000 * 60 * 60 * 24));
-
-          const message = this.whatsapp.createReminderMessage({
-            name: reminder.name,
-            insurance: reminder.insurance,
-            expirationDate: expirationDate,
-            daysLeft: daysLeft
-          });
-
-          await this.whatsapp.sendMessage(reminder.phone_formatted, message);
-
-          // Отмечаем напоминание как отправленное
-          await this.db.markDailyReminderSent(reminder.reminder_id);
-
-          console.log(`   ✅ Отправлено: ${reminder.name} (дней до окончания: ${daysLeft})`);
-
-          // Задержка между сообщениями
-          await new Promise(resolve => setTimeout(resolve, 3000));
-
-        } catch (error) {
-          console.error(`   ❌ Ошибка отправки для ${reminder.name}:`, error.message);
-        }
+      let gapSec = DEFAULT_GAP_SEC;
+      if (N > 1 && (N - 1) * DEFAULT_GAP_SEC > WINDOW_SEC) {
+        gapSec = Math.max(MIN_GAP_SEC, Math.floor(WINDOW_SEC / (N - 1)));
       }
 
-      console.log('\n✅ Проверка напоминаний завершена');
+      const lastEta = new Date(Date.now() + (N - 1) * gapSec * 1000);
+      const etaStr = lastEta.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      console.log(`   📨 В очереди ${N} клиент(ов); шаг ${gapSec} сек; последняя отправка ~${etaStr}`);
+
+      this.cancelQueue();
+
+      for (let i = 0; i < N; i++) {
+        const reminder = reminders[i];
+        const delayMs = i * gapSec * 1000;
+        const timeoutId = setTimeout(() => this.sendOneReminder(reminder, i + 1, N), delayMs);
+        this.queueTimeouts.push(timeoutId);
+      }
 
     } catch (error) {
-      console.error('❌ Ошибка при проверке напоминаний:', error.message);
+      console.error('❌ Ошибка при построении очереди напоминаний:', error.message);
+    }
+  }
+
+  /**
+   * Отмена всех запланированных таймеров (например, при выключении сервиса
+   * или при повторном запуске cron в тот же день).
+   */
+  cancelQueue() {
+    if (this.queueTimeouts.length > 0) {
+      for (const id of this.queueTimeouts) clearTimeout(id);
+      console.log(`   🧹 Отменено ${this.queueTimeouts.length} ожидающих таймер(ов)`);
+      this.queueTimeouts = [];
+    }
+  }
+
+  /**
+   * Отправка одного напоминания. Не отправляет после 20:00 МСК.
+   * При неудаче после MAX_IMMEDIATE_RETRIES ставит себя обратно в очередь
+   * через REQUEUE_DELAY_MS и повторяет до 20:00 или восстановления связи.
+   * @param {number} requeueCount - сколько раз уже ставили в очередь повторно
+   */
+  async sendOneReminder(reminder, index, total, requeueCount = 0) {
+    if (!this.isRunning) return;
+
+    const nowHour = new Date().getHours();
+    if (nowHour >= 20 || nowHour < 10) {
+      if (requeueCount > 0) {
+        console.log(`   ⏰ [${index}/${total}] Вне окна 10:00–20:00, отменяю повтор для ${reminder.name}`);
+      } else {
+        console.log(`   ⏰ Вне окна 10:00–20:00 МСК, пропускаю ${reminder.name} (${index}/${total})`);
+      }
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const expirationDate = new Date(reminder.expiration_date);
+    expirationDate.setHours(0, 0, 0, 0);
+
+    const daysLeft = Math.ceil((expirationDate - today) / (1000 * 60 * 60 * 24));
+
+    const message = this.whatsapp.createReminderMessage({
+      name: reminder.name,
+      insurance: reminder.insurance,
+      expirationDate: expirationDate,
+      daysLeft: daysLeft
+    });
+
+    const MAX_IMMEDIATE_RETRIES = 2;
+    const IMMEDIATE_RETRY_DELAY_MS = 30 * 1000;   // 30 сек между немедленными попытками
+    const REQUEUE_DELAY_MS = 10 * 60 * 1000;       // 10 мин до следующей постановки в очередь
+
+    for (let attempt = 1; attempt <= MAX_IMMEDIATE_RETRIES; attempt++) {
+      try {
+        await this.whatsapp.sendMessage(reminder.phone_formatted, message);
+        await this.db.markDailyReminderSent(reminder.reminder_id);
+        const retryNote = requeueCount > 0 ? ` (повтор #${requeueCount})` : '';
+        console.log(`   ✅ [${index}/${total}] Отправлено${retryNote}: ${reminder.name} (дней до окончания: ${daysLeft})`);
+        return;
+      } catch (error) {
+        if (attempt < MAX_IMMEDIATE_RETRIES) {
+          console.warn(`   ⚠️  [${index}/${total}] Попытка ${attempt}/${MAX_IMMEDIATE_RETRIES} (${reminder.name}): ${error.message}`);
+          console.warn(`   🔄 Немедленный повтор через ${IMMEDIATE_RETRY_DELAY_MS / 1000} сек...`);
+          await new Promise(resolve => setTimeout(resolve, IMMEDIATE_RETRY_DELAY_MS));
+        } else {
+          console.warn(`   📅 [${index}/${total}] Отправка не удалась (${reminder.name}): ${error.message}`);
+          console.warn(`   🔁 Ставлю в очередь повторно через ${REQUEUE_DELAY_MS / 60000} мин (повтор #${requeueCount + 1})...`);
+          const timeoutId = setTimeout(
+            () => this.sendOneReminder(reminder, index, total, requeueCount + 1),
+            REQUEUE_DELAY_MS
+          );
+          this.queueTimeouts.push(timeoutId);
+        }
+      }
     }
   }
 
@@ -207,7 +269,7 @@ class InsuranceReminderService {
     console.log('✅ Планировщик настроен:');
     console.log('   - 03:00 - резервное копирование БД');
     console.log('   - 09:00 - обновление данных из Excel');
-    console.log('   - 10:00 - проверка и отправка напоминаний');
+    console.log('   - 10:00 - построение очереди и отправка напоминаний (шаг 2 мин, окно до 20:00 МСК)');
   }
 
   /**
@@ -216,6 +278,7 @@ class InsuranceReminderService {
   async shutdown() {
     console.log('\n🛑 Остановка сервиса...');
     this.isRunning = false;
+    this.cancelQueue();
 
     await this.whatsapp.destroy();
     await this.db.close();
