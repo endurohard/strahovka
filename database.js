@@ -312,7 +312,15 @@ async upsertClient(client) {
       SELECT
         COUNT(*) as total_clients,
         COUNT(CASE WHEN reminder_date > NOW() THEN 1 END) as upcoming_reminders,
-        COUNT(CASE WHEN reminder_date <= NOW() AND (last_reminder_sent IS NULL OR last_reminder_sent::date < NOW()::date) THEN 1 END) as pending_reminders,
+        COUNT(CASE WHEN reminder_date <= NOW()
+                   AND (last_reminder_sent IS NULL OR last_reminder_sent::date < NOW()::date)
+                   AND phone_formatted IS NOT NULL AND btrim(phone_formatted) <> ''
+                   AND NOT EXISTS (
+                     SELECT 1 FROM message_queue mq
+                     WHERE mq.client_id = clients.id AND mq.status = 'skipped'
+                       AND mq.created_at::date = CURRENT_DATE
+                   )
+                 THEN 1 END) as pending_reminders,
         COUNT(CASE WHEN last_reminder_sent IS NOT NULL THEN 1 END) as sent_reminders
       FROM clients;
     `;
@@ -418,6 +426,18 @@ async upsertClient(client) {
   }
 
 
+  // Просроченные/сегодняшние контакты без номера телефона (для уведомления админу)
+  async getDueContactsWithoutPhone() {
+    const result = await this.pool.query(`
+      SELECT id, name FROM clients
+      WHERE reminder_date::date <= CURRENT_DATE
+        AND (last_reminder_sent IS NULL OR last_reminder_sent::date < CURRENT_DATE)
+        AND (phone_formatted IS NULL OR btrim(phone_formatted) = '')
+      ORDER BY name;
+    `);
+    return result.rows;
+  }
+
   // ==================== MESSAGE QUEUE ====================
 
   async enqueueMessage(clientId, phone, clientName, message, scheduledAt = null) {
@@ -467,7 +487,7 @@ async upsertClient(client) {
        SELECT $1::varchar, $2::int, $3::varchar, $4::varchar, $5::text
        WHERE NOT EXISTS (
          SELECT 1 FROM admin_notifications
-         WHERE type = $1::varchar AND phone = $4::varchar AND is_read = false
+         WHERE type = $1::varchar AND client_id IS NOT DISTINCT FROM $2::int AND is_read = false
        )
        RETURNING id`,
       [type, clientId, clientName, phone, message]

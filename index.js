@@ -176,6 +176,25 @@ class InsuranceReminderService {
         console.log('   ℹ️  Все сегодняшние напоминания уже в очереди');
       }
 
+      // Уведомления админу о контактах без номера телефона (не доставляемы)
+      try {
+        const noPhone = await this.db.getDueContactsWithoutPhone();
+        let notified = 0;
+        for (const c of noPhone) {
+          const created = await this.db.createAdminNotification({
+            type: 'missing_phone',
+            clientId: c.id,
+            clientName: c.name,
+            phone: null,
+            message: 'У клиента нет номера телефона — напоминание не может быть отправлено.'
+          });
+          if (created) notified++;
+        }
+        if (notified > 0) console.log(`   🔔 Уведомлений о контактах без номера: ${notified}`);
+      } catch (e) {
+        console.error('   ⚠️  Ошибка уведомлений о контактах без номера:', e.message);
+      }
+
     } catch (error) {
       console.error('❌ Ошибка при заполнении очереди:', error.message);
     }
