@@ -51,6 +51,12 @@ class InsuranceReminderService {
       console.log('\n✅ Сервис успешно запущен!');
       this.isRunning = true;
 
+      // Обработчик очереди: разгребает message_queue каждые 60 сек
+      this.queueInterval = setInterval(() => this.processQueue(), 60 * 1000);
+
+      // Первичное наполнение очереди при старте (догоняем сегодняшние/просроченные)
+      this.checkAndSendReminders().catch((e) => console.error('Ошибка стартового наполнения очереди:', e.message));
+
     } catch (error) {
       console.error('❌ Ошибка инициализации сервиса:', error.message);
       throw error;
@@ -106,17 +112,14 @@ class InsuranceReminderService {
   }
 
   /**
-   * Построение дневной очереди напоминаний.
-   * Окно: 10:00–20:00 по МСК (TZ контейнера = Europe/Moscow).
-   * Шаг по умолчанию — 120 сек; сжимается до 60 сек, если очередь не помещается в окно.
+   * Заполнение очереди ежедневными напоминаниями.
+   * Создаёт записи в message_queue для всех клиентов у которых сегодня reminder_date
+   * и которые ещё не попали в очередь сегодня.
    */
   async checkAndSendReminders() {
-    if (!this.isRunning) {
-      console.log('⏸️  Сервис не запущен, пропускаю проверку');
-      return;
-    }
+    if (!this.isRunning) return;
 
-    console.log('\n⏰ Построение очереди ежедневных напоминаний...');
+    console.log('\n⏰ Проверка и заполнение очереди напоминаний...');
     console.log(`   Текущее время: ${new Date().toLocaleString('ru-RU')}`);
 
     try {
@@ -127,107 +130,90 @@ class InsuranceReminderService {
         return;
       }
 
-      const WINDOW_SEC = 10 * 60 * 60;   // 10:00–20:00 = 600 мин = 36000 сек
-      const DEFAULT_GAP_SEC = 120;       // 2 минуты между клиентами
-      const MIN_GAP_SEC = 60;            // сжимаем до 1 минуты при перегрузке
+      const WINDOW_SEC = 10 * 60 * 60;
+      const DEFAULT_GAP_SEC = 120;
+      const MIN_GAP_SEC = 60;
       const N = reminders.length;
-
       let gapSec = DEFAULT_GAP_SEC;
       if (N > 1 && (N - 1) * DEFAULT_GAP_SEC > WINDOW_SEC) {
         gapSec = Math.max(MIN_GAP_SEC, Math.floor(WINDOW_SEC / (N - 1)));
       }
 
-      const lastEta = new Date(Date.now() + (N - 1) * gapSec * 1000);
-      const etaStr = lastEta.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-      console.log(`   📨 В очереди ${N} клиент(ов); шаг ${gapSec} сек; последняя отправка ~${etaStr}`);
-
-      this.cancelQueue();
-
+      let added = 0;
       for (let i = 0; i < N; i++) {
         const reminder = reminders[i];
-        const delayMs = i * gapSec * 1000;
-        const timeoutId = setTimeout(() => this.sendOneReminder(reminder, i + 1, N), delayMs);
-        this.queueTimeouts.push(timeoutId);
+
+        // Не ставим в очередь контакты без номера телефона
+        if (!reminder.phone_formatted || !String(reminder.phone_formatted).trim()) {
+          console.log('   skip (no phone): ' + reminder.name);
+          continue;
+        }
+
+        const alreadyQueued = await this.db.isAlreadyQueued(reminder.id, new Date());
+        if (alreadyQueued) continue;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const expirationDate = new Date(reminder.expiration_date);
+        expirationDate.setHours(0, 0, 0, 0);
+        const daysLeft = Math.ceil((expirationDate - today) / (1000 * 60 * 60 * 24));
+
+        const message = this.whatsapp.createReminderMessage({
+          name: reminder.name,
+          insurance: reminder.insurance,
+          expirationDate,
+          daysLeft
+        });
+
+        const scheduledAt = new Date(Date.now() + i * gapSec * 1000);
+        await this.db.enqueueMessage(reminder.id, reminder.phone_formatted, reminder.name, message, scheduledAt);
+        added++;
+      }
+
+      if (added > 0) {
+        console.log(`   📨 Добавлено в очередь: ${added} сообщений (шаг ${gapSec} сек)`);
+      } else {
+        console.log('   ℹ️  Все сегодняшние напоминания уже в очереди');
       }
 
     } catch (error) {
-      console.error('❌ Ошибка при построении очереди напоминаний:', error.message);
+      console.error('❌ Ошибка при заполнении очереди:', error.message);
     }
   }
 
   /**
-   * Отмена всех запланированных таймеров (например, при выключении сервиса
-   * или при повторном запуске cron в тот же день).
+   * Обработчик очереди — берёт следующее pending-сообщение и отправляет.
+   * Запускается setInterval каждые 60 сек.
    */
-  cancelQueue() {
-    if (this.queueTimeouts.length > 0) {
-      for (const id of this.queueTimeouts) clearTimeout(id);
-      console.log(`   🧹 Отменено ${this.queueTimeouts.length} ожидающих таймер(ов)`);
-      this.queueTimeouts = [];
-    }
-  }
-
-  /**
-   * Отправка одного напоминания. Не отправляет после 20:00 МСК.
-   * При неудаче после MAX_IMMEDIATE_RETRIES ставит себя обратно в очередь
-   * через REQUEUE_DELAY_MS и повторяет до 20:00 или восстановления связи.
-   * @param {number} requeueCount - сколько раз уже ставили в очередь повторно
-   */
-  async sendOneReminder(reminder, index, total, requeueCount = 0) {
-    if (!this.isRunning) return;
+  async processQueue() {
+    if (!this.isRunning || !this.whatsapp.isReady) return;
 
     const nowHour = new Date().getHours();
-    if (nowHour >= 20 || nowHour < 10) {
-      if (requeueCount > 0) {
-        console.log(`   ⏰ [${index}/${total}] Вне окна 10:00–20:00, отменяю повтор для ${reminder.name}`);
-      } else {
-        console.log(`   ⏰ Вне окна 10:00–20:00 МСК, пропускаю ${reminder.name} (${index}/${total})`);
-      }
+    if (nowHour >= 20 || nowHour < 10) return;
+
+    let item;
+    try {
+      item = await this.db.getNextQueueItem();
+    } catch (e) {
       return;
     }
+    if (!item) return;
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const expirationDate = new Date(reminder.expiration_date);
-    expirationDate.setHours(0, 0, 0, 0);
-
-    const daysLeft = Math.ceil((expirationDate - today) / (1000 * 60 * 60 * 24));
-
-    const message = this.whatsapp.createReminderMessage({
-      name: reminder.name,
-      insurance: reminder.insurance,
-      expirationDate: expirationDate,
-      daysLeft: daysLeft
-    });
-
-    const MAX_IMMEDIATE_RETRIES = 2;
-    const IMMEDIATE_RETRY_DELAY_MS = 30 * 1000;   // 30 сек между немедленными попытками
-    const REQUEUE_DELAY_MS = 10 * 60 * 1000;       // 10 мин до следующей постановки в очередь
-
-    for (let attempt = 1; attempt <= MAX_IMMEDIATE_RETRIES; attempt++) {
-      try {
-        await this.whatsapp.sendMessage(reminder.phone_formatted, message);
-        await this.db.markDailyReminderSent(reminder.reminder_id);
-        const retryNote = requeueCount > 0 ? ` (повтор #${requeueCount})` : '';
-        console.log(`   ✅ [${index}/${total}] Отправлено${retryNote}: ${reminder.name} (дней до окончания: ${daysLeft})`);
-        return;
-      } catch (error) {
-        if (attempt < MAX_IMMEDIATE_RETRIES) {
-          console.warn(`   ⚠️  [${index}/${total}] Попытка ${attempt}/${MAX_IMMEDIATE_RETRIES} (${reminder.name}): ${error.message}`);
-          console.warn(`   🔄 Немедленный повтор через ${IMMEDIATE_RETRY_DELAY_MS / 1000} сек...`);
-          await new Promise(resolve => setTimeout(resolve, IMMEDIATE_RETRY_DELAY_MS));
-        } else {
-          console.warn(`   📅 [${index}/${total}] Отправка не удалась (${reminder.name}): ${error.message}`);
-          console.warn(`   🔁 Ставлю в очередь повторно через ${REQUEUE_DELAY_MS / 60000} мин (повтор #${requeueCount + 1})...`);
-          const timeoutId = setTimeout(
-            () => this.sendOneReminder(reminder, index, total, requeueCount + 1),
-            REQUEUE_DELAY_MS
-          );
-          this.queueTimeouts.push(timeoutId);
-        }
-      }
+    console.log(`\n📤 [Queue] Отправка: ${item.client_name} (${item.phone}), попытка #${item.attempts + 1}`);
+    try {
+      await this.whatsapp.sendMessage(item.phone, item.message);
+      await this.db.markQueueItemSent(item.id);
+      await this.db.markDailyReminderSent(item.client_id);
+      console.log(`   ✅ [Queue] Отправлено: ${item.client_name}`);
+    } catch (error) {
+      const attempts = item.attempts + 1;
+      await this.db.markQueueItemFailed(item.id, error.message, attempts);
+      console.warn(`   ❌ [Queue] Ошибка (${item.client_name}): ${error.message} | попытка ${attempts}/${item.max_attempts}`);
     }
+  }
+
+  cancelQueue() {
+    // Оставлено для обратной совместимости — очередь теперь персистентная в БД
   }
 
   /**

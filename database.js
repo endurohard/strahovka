@@ -89,6 +89,26 @@ class Database {
       CREATE INDEX IF NOT EXISTS idx_phone ON clients(phone_formatted);
       CREATE INDEX IF NOT EXISTS idx_daily_reminder_date ON daily_reminders(reminder_date);
       CREATE INDEX IF NOT EXISTS idx_daily_reminder_status ON daily_reminders(status);
+
+      CREATE TABLE IF NOT EXISTS message_queue (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+        phone VARCHAR(20) NOT NULL,
+        client_name VARCHAR(255),
+        message TEXT NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        attempts INTEGER DEFAULT 0,
+        max_attempts INTEGER DEFAULT 10,
+        scheduled_at TIMESTAMP DEFAULT NOW(),
+        sent_at TIMESTAMP,
+        last_attempt_at TIMESTAMP,
+        next_retry_at TIMESTAMP DEFAULT NOW(),
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_mq_status ON message_queue(status);
+      CREATE INDEX IF NOT EXISTS idx_mq_next_retry ON message_queue(next_retry_at) WHERE status = 'pending';
     `;
 
     try {
@@ -342,22 +362,22 @@ async upsertClient(client) {
    * @param {Date} date - дата для проверки
    */
   async getDailyReminders(date = new Date()) {
-    const dateStr = date.toISOString().split('T')[0];
-
+    // Используем clients.reminder_date — дата там правильная (за 7 дней до окончания).
+    // daily_reminders содержит смещённые даты из-за timezone-бага при генерации.
     const query = `
       SELECT
-        dr.id as reminder_id,
-        dr.reminder_date,
+        c.id as reminder_id,
+        c.reminder_date,
         c.*
-      FROM daily_reminders dr
-      JOIN clients c ON dr.client_id = c.id
-      WHERE dr.reminder_date = $1
-        AND dr.status = 'pending'
+      FROM clients c
+      WHERE c.reminder_date::date <= CURRENT_DATE
+        AND c.phone_formatted IS NOT NULL AND btrim(c.phone_formatted) <> ''
+        AND (c.last_reminder_sent IS NULL OR c.last_reminder_sent::date < CURRENT_DATE)
       ORDER BY c.name;
     `;
 
     try {
-      const result = await this.pool.query(query, [dateStr]);
+      const result = await this.pool.query(query);
       return result.rows;
     } catch (error) {
       console.error('❌ Ошибка получения ежедневных напоминаний:', error.message);
@@ -366,22 +386,112 @@ async upsertClient(client) {
   }
 
   /**
-   * Отметка отправки ежедневного напоминания
-   * @param {number} reminderId - ID напоминания из daily_reminders
+   * Отметка отправки напоминания клиенту (обновляет clients.last_reminder_sent)
+   * @param {number} reminderId - clients.id
    */
   async markDailyReminderSent(reminderId) {
     const query = `
-      UPDATE daily_reminders
-      SET sent_at = NOW(), status = 'sent'
+      UPDATE clients
+      SET last_reminder_sent = NOW()
       WHERE id = $1;
     `;
 
     try {
       await this.pool.query(query, [reminderId]);
     } catch (error) {
-      console.error(`❌ Ошибка отметки ежедневного напоминания ${reminderId}:`, error.message);
+      console.error(`❌ Ошибка отметки отправки напоминания для клиента ${reminderId}:`, error.message);
       throw error;
     }
+  }
+
+
+  // ==================== MESSAGE QUEUE ====================
+
+  async enqueueMessage(clientId, phone, clientName, message, scheduledAt = null) {
+    const query = `
+      INSERT INTO message_queue (client_id, phone, client_name, message, scheduled_at, next_retry_at)
+      VALUES ($1, $2, $3, $4, $5, $5)
+      RETURNING id;
+    `;
+    const at = scheduledAt || new Date();
+    const result = await this.pool.query(query, [clientId, phone, clientName, message, at]);
+    return result.rows[0].id;
+  }
+
+  async getNextQueueItem() {
+    const query = `
+      SELECT * FROM message_queue
+      WHERE status = 'pending'
+        AND next_retry_at <= NOW()
+      ORDER BY next_retry_at ASC
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED;
+    `;
+    const result = await this.pool.query(query);
+    return result.rows[0] || null;
+  }
+
+  async markQueueItemSent(id) {
+    await this.pool.query(
+      `UPDATE message_queue SET status = 'sent', sent_at = NOW(), last_attempt_at = NOW(), error_message = NULL WHERE id = $1`,
+      [id]
+    );
+  }
+
+  async markQueueItemFailed(id, errorMessage, attempts) {
+    const backoffMinutes = [5, 10, 30, 60, 120, 240, 480, 960, 960, 960];
+    const delayMin = backoffMinutes[Math.min(attempts, backoffMinutes.length - 1)];
+    const nextRetry = new Date(Date.now() + delayMin * 60 * 1000);
+    const maxAttempts = 10;
+    const newStatus = attempts >= maxAttempts ? 'failed' : 'pending';
+    await this.pool.query(
+      `UPDATE message_queue
+       SET status = $1, attempts = $2, last_attempt_at = NOW(),
+           next_retry_at = $3, error_message = $4
+       WHERE id = $5`,
+      [newStatus, attempts, nextRetry, errorMessage.substring(0, 500), id]
+    );
+  }
+
+  async getQueueStats() {
+    const result = await this.pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'pending') as pending,
+        COUNT(*) FILTER (WHERE status = 'sent') as sent,
+        COUNT(*) FILTER (WHERE status = 'failed') as failed,
+        COUNT(*) as total
+      FROM message_queue
+      WHERE created_at >= CURRENT_DATE;
+    `);
+    return result.rows[0];
+  }
+
+  async getQueueItems(limit = 100, offset = 0) {
+    const result = await this.pool.query(
+      `SELECT * FROM message_queue ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    );
+    return result.rows;
+  }
+
+  async retryQueueItem(id) {
+    await this.pool.query(
+      `UPDATE message_queue SET status = 'pending', next_retry_at = NOW(), error_message = NULL WHERE id = $1`,
+      [id]
+    );
+  }
+
+  async isAlreadyQueued(clientId, scheduledDate) {
+    const dateStr = scheduledDate.toISOString().split('T')[0];
+    const result = await this.pool.query(
+      `SELECT id FROM message_queue
+       WHERE client_id = $1
+         AND created_at::date = $2
+         AND status IN ('pending', 'sent')
+       LIMIT 1`,
+      [clientId, dateStr]
+    );
+    return result.rows.length > 0;
   }
 
   /**
