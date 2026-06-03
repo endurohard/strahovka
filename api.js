@@ -158,6 +158,11 @@ class API {
     this.app.get("/api/expenses", this.requireAuth.bind(this), this.getExpenses.bind(this));
     this.app.post("/api/expenses", this.requireAuth.bind(this), this.createExpense.bind(this));
     this.app.delete("/api/expenses/:id", this.requireAuth.bind(this), this.deleteExpense.bind(this));
+
+    // Notifications (admin)
+    this.app.get("/api/notifications", this.requireAuth.bind(this), this.getNotifications.bind(this));
+    this.app.post("/api/notifications/:id/read", this.requireAuth.bind(this), this.markNotificationRead.bind(this));
+    this.app.post("/api/notifications/read-all", this.requireAuth.bind(this), this.markAllNotificationsRead.bind(this));
     
     // Analytics
     this.app.get("/api/analytics", this.requireAuth.bind(this), this.getAnalytics.bind(this));
@@ -553,11 +558,18 @@ class API {
         return res.status(400).json({ error: 'У клиента нет номера телефона' });
       }
 
-      // Создать сообщение
+      // Создать сообщение с количеством дней
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const expirationDate = new Date(client.expiration_date);
+      expirationDate.setHours(0, 0, 0, 0);
+      const daysLeft = Math.ceil((expirationDate - today) / (1000 * 60 * 60 * 24));
+
       const message = this.whatsapp.createReminderMessage({
         name: client.name,
         insurance: client.insurance,
-        expirationDate: new Date(client.expiration_date)
+        expirationDate,
+        daysLeft
       });
 
       // Отправить сообщение
@@ -631,7 +643,7 @@ class API {
         return res.status(503).json({ error: 'WhatsApp не готов' });
       }
 
-      const clientsToRemind = await this.db.getClientsForReminder();
+      const clientsToRemind = await this.db.getDailyReminders();
 
       if (clientsToRemind.length === 0) {
         return res.json({ message: 'Нет клиентов для напоминания сегодня', sent: 0 });
@@ -639,22 +651,31 @@ class API {
 
       let sent = 0;
       let errors = 0;
+      const errorDetails = [];
 
       for (const client of clientsToRemind) {
         try {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const expirationDate = new Date(client.expiration_date);
+          expirationDate.setHours(0, 0, 0, 0);
+          const daysLeft = Math.ceil((expirationDate - today) / (1000 * 60 * 60 * 24));
+
           const message = this.whatsapp.createReminderMessage({
             name: client.name,
             insurance: client.insurance,
-            expirationDate: new Date(client.expiration_date)
+            expirationDate,
+            daysLeft
           });
 
           await this.whatsapp.sendMessage(client.phone_formatted, message);
-          await this.db.markReminderSent(client.id);
+          await this.db.markDailyReminderSent(client.reminder_id);
           sent++;
 
           await new Promise(resolve => setTimeout(resolve, 3000));
         } catch (err) {
           errors++;
+          errorDetails.push({ client: client.name, error: err.message });
         }
       }
 
@@ -662,7 +683,8 @@ class API {
         message: 'Напоминания отправлены',
         sent,
         errors,
-        total: clientsToRemind.length
+        total: clientsToRemind.length,
+        errorDetails
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -963,6 +985,36 @@ class API {
 
 // ==================== EMPLOYEES API ====================
   
+  async getNotifications(req, res) {
+    try {
+      const [items, unread] = await Promise.all([
+        this.db.getAdminNotifications(50),
+        this.db.getUnreadNotificationCount()
+      ]);
+      res.json({ items, unread });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async markNotificationRead(req, res) {
+    try {
+      await this.db.markNotificationRead(parseInt(req.params.id, 10));
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async markAllNotificationsRead(req, res) {
+    try {
+      await this.db.markAllNotificationsRead();
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
   async getEmployees(req, res) {
     try {
       const employees = await this.db.getEmployees();

@@ -109,6 +109,19 @@ class Database {
 
       CREATE INDEX IF NOT EXISTS idx_mq_status ON message_queue(status);
       CREATE INDEX IF NOT EXISTS idx_mq_next_retry ON message_queue(next_retry_at) WHERE status = 'pending';
+
+      CREATE TABLE IF NOT EXISTS admin_notifications (
+        id SERIAL PRIMARY KEY,
+        type VARCHAR(40) NOT NULL DEFAULT 'unregistered_phone',
+        client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+        client_name VARCHAR(255),
+        phone VARCHAR(20),
+        message TEXT,
+        is_read BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_admin_notif_unread ON admin_notifications(is_read) WHERE is_read = false;
     `;
 
     try {
@@ -438,6 +451,53 @@ async upsertClient(client) {
     );
   }
 
+  async markQueueItemSkipped(id, reason) {
+    await this.pool.query(
+      `UPDATE message_queue SET status = 'skipped', last_attempt_at = NOW(), error_message = $2 WHERE id = $1`,
+      [id, (reason || '').substring(0, 500)]
+    );
+  }
+
+  // ==================== ADMIN NOTIFICATIONS ====================
+
+  // Создаёт уведомление админу; дедуплицирует по (type, phone) среди непрочитанных.
+  async createAdminNotification({ type = 'unregistered_phone', clientId = null, clientName = null, phone = null, message = null }) {
+    const result = await this.pool.query(
+      `INSERT INTO admin_notifications (type, client_id, client_name, phone, message)
+       SELECT $1::varchar, $2::int, $3::varchar, $4::varchar, $5::text
+       WHERE NOT EXISTS (
+         SELECT 1 FROM admin_notifications
+         WHERE type = $1::varchar AND phone = $4::varchar AND is_read = false
+       )
+       RETURNING id`,
+      [type, clientId, clientName, phone, message]
+    );
+    return result.rows[0] ? result.rows[0].id : null;
+  }
+
+  async getAdminNotifications(limit = 50) {
+    const result = await this.pool.query(
+      `SELECT * FROM admin_notifications ORDER BY is_read ASC, created_at DESC LIMIT $1`,
+      [limit]
+    );
+    return result.rows;
+  }
+
+  async getUnreadNotificationCount() {
+    const result = await this.pool.query(
+      `SELECT COUNT(*)::int AS count FROM admin_notifications WHERE is_read = false`
+    );
+    return result.rows[0].count;
+  }
+
+  async markNotificationRead(id) {
+    await this.pool.query(`UPDATE admin_notifications SET is_read = true WHERE id = $1`, [id]);
+  }
+
+  async markAllNotificationsRead() {
+    await this.pool.query(`UPDATE admin_notifications SET is_read = true WHERE is_read = false`);
+  }
+
   async markQueueItemFailed(id, errorMessage, attempts) {
     const backoffMinutes = [5, 10, 30, 60, 120, 240, 480, 960, 960, 960];
     const delayMin = backoffMinutes[Math.min(attempts, backoffMinutes.length - 1)];
@@ -487,7 +547,7 @@ async upsertClient(client) {
       `SELECT id FROM message_queue
        WHERE client_id = $1
          AND created_at::date = $2
-         AND status IN ('pending', 'sent')
+         AND status IN ('pending', 'sent', 'skipped')
        LIMIT 1`,
       [clientId, dateStr]
     );

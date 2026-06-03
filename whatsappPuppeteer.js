@@ -51,6 +51,8 @@ class WhatsAppPuppeteer {
           '--disable-gpu',
           '--remote-debugging-port=9222', // Удаленная отладка
           '--disable-blink-features=AutomationControlled',
+          '--proxy-server=socks5://127.0.0.1:1080',
+          '--proxy-bypass-list=localhost,127.0.0.1',
         ]
       });
 
@@ -151,9 +153,11 @@ class WhatsAppPuppeteer {
                           document.querySelector('#pane-side') !== null;
           const hasQR = document.querySelector('[data-testid="qrcode"]') !== null ||
                        document.querySelector('canvas') !== null;
-          const hasReloadBtn = document.querySelector('[data-testid="intro-qrcode-reload-btn"]') !== null;
+          const hasReloadBtn = document.querySelector('[data-testid="intro-qrcode-reload-btn"]') !== null ||
+                               document.querySelector('[data-testid="link-device-qr-code"]') !== null;
           const bodyText = document.body ? document.body.innerText : '';
-          const qrExpired = hasReloadBtn || bodyText.includes('Select to reload') || bodyText.includes('Reload QR');
+          const qrExpired = hasReloadBtn || bodyText.includes('Select to reload') || bodyText.includes('Reload QR') ||
+                            bodyText.includes('перезагруз') || bodyText.includes('перезагрузить QR');
           return { hasChats, hasQR, qrExpired };
         });
 
@@ -162,15 +166,31 @@ class WhatsAppPuppeteer {
           this.isReady = true;
           clearInterval(checkInterval);
           qrExpiredCount = 0;
-        } else if (state.qrExpired || (!state.hasQR && !state.hasChats)) {
+        } else if (state.qrExpired) {
           qrExpiredCount++;
           if (qrExpiredCount >= 2) {
             qrExpiredCount = 0;
-            console.log('🔄 QR-код истёк, обновляю страницу...');
-            await this.page.goto('https://web.whatsapp.com', {
-              waitUntil: 'domcontentloaded',
-              timeout: 30000
-            });
+            console.log('🔄 QR-код истёк, нажимаю кнопку обновления...');
+            try {
+              const clicked = await this.page.evaluate(() => {
+                const btn = document.querySelector('[data-testid="link-device-qr-code"]') ||
+                            document.querySelector('[data-testid="intro-qrcode-reload-btn"]');
+                if (btn) { btn.click(); return true; }
+                return false;
+              });
+              if (!clicked) {
+                console.log('🔄 Кнопка не найдена, перезагружаю страницу...');
+                await this.page.goto('https://web.whatsapp.com', {
+                  waitUntil: 'domcontentloaded',
+                  timeout: 30000
+                });
+              }
+            } catch (e) {
+              await this.page.goto('https://web.whatsapp.com', {
+                waitUntil: 'domcontentloaded',
+                timeout: 30000
+              });
+            }
           }
         } else {
           qrExpiredCount = 0;
@@ -255,6 +275,26 @@ class WhatsAppPuppeteer {
       }
 
       if (!inputFound) {
+        // Поле ввода не появилось — возможно, номера нет в WhatsApp. Проверяем попап/текст об ошибке.
+        const invalid = await this.page.evaluate(() => {
+          const popup = document.querySelector('[data-testid="popup-contents"]') ||
+                        document.querySelector('[role="alertdialog"]') ||
+                        document.querySelector('[data-testid="alert-popup"]');
+          const popupText = popup ? (popup.innerText || popup.textContent || '') : '';
+          const bodyText = document.body ? (document.body.innerText || '') : '';
+          const h = (popupText + ' ' + bodyText).toLowerCase();
+          return h.includes('phone number shared via url is invalid') ||
+                 h.includes('url is invalid') ||
+                 h.includes('номер телефона, указанный по ссылке') ||
+                 h.includes('по ссылке, неверен') ||
+                 h.includes('недействителен') ||
+                 h.includes('не зарегистрирован');
+        });
+        if (invalid) {
+          const err = new Error('Номер не зарегистрирован в WhatsApp');
+          err.notRegistered = true;
+          throw err;
+        }
         throw new Error('Поле ввода сообщения не найдено');
       }
 
@@ -283,7 +323,12 @@ class WhatsAppPuppeteer {
       });
 
       if (errorPopup) {
-        throw new Error(`Номер не зарегистрирован в WhatsApp или ошибка: ${errorPopup.substring(0, 100)}`);
+        const txt = String(errorPopup).toLowerCase();
+        const err = new Error(`Номер не зарегистрирован в WhatsApp или ошибка: ${errorPopup.substring(0, 100)}`);
+        if (txt.includes('invalid') || txt.includes('неверен') || txt.includes('недействителен') || txt.includes('не зарегистрирован')) {
+          err.notRegistered = true;
+        }
+        throw err;
       }
 
       // Проверяем, что поле ввода очистилось (сообщение реально отправлено)

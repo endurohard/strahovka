@@ -33,6 +33,21 @@
                         </span>
                     </div>
 
+                    <!-- Уведомления -->
+                    <div class="relative">
+                        <button onclick="toggleNotifications()" class="relative flex items-center hover:bg-gray-100 px-3 py-2 rounded-lg transition" title="Уведомления">
+                            <i class="fas fa-bell text-gray-600 text-xl"></i>
+                            <span id="notif-badge" class="hidden absolute top-0 right-0 bg-red-600 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">0</span>
+                        </button>
+                        <div id="notifMenu" class="hidden absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-lg z-20 max-h-96 flex flex-col overflow-hidden">
+                            <div class="flex items-center justify-between px-4 py-3 border-b">
+                                <span class="font-semibold text-gray-800">Уведомления</span>
+                                <button onclick="markAllNotificationsRead()" class="text-xs text-blue-600 hover:underline">Прочитать все</button>
+                            </div>
+                            <div id="notifList" class="overflow-y-auto divide-y"></div>
+                        </div>
+                    </div>
+
                     <!-- Меню пользователя -->
                     <div class="relative">
                         <button

@@ -46,12 +46,21 @@ document.addEventListener('DOMContentLoaded', () => {
     loadStats();
     loadClients();
     checkWhatsAppStatus();
+    loadNotifications();
 
     // Обновление каждые 30 секунд
     setInterval(() => {
         loadStats();
         checkWhatsAppStatus();
+        loadNotifications();
     }, 30000);
+});
+
+// Закрытие меню уведомлений по клику вне него
+document.addEventListener('click', (e) => {
+    const wrap = document.getElementById('notifMenu');
+    const btn = e.target.closest && e.target.closest('[onclick="toggleNotifications()"]');
+    if (wrap && !btn && !wrap.contains(e.target)) wrap.classList.add('hidden');
 });
 
 // Проверка статуса WhatsApp
@@ -597,3 +606,74 @@ document.addEventListener('click', (e) => {
         menu.classList.add('hidden');
     }
 });
+
+
+// ==================== Уведомления администратору ====================
+let _notifData = { items: [], unread: 0 };
+
+async function loadNotifications() {
+    try {
+        const res = await fetch(`${API_BASE}/api/notifications`, { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        _notifData = await res.json();
+        renderNotifications();
+    } catch (e) {
+        console.error('Ошибка загрузки уведомлений:', e);
+    }
+}
+
+function renderNotifications() {
+    const badge = document.getElementById('notif-badge');
+    if (badge) {
+        if (_notifData.unread > 0) {
+            badge.textContent = _notifData.unread > 99 ? '99+' : _notifData.unread;
+            badge.classList.remove('hidden');
+        } else {
+            badge.classList.add('hidden');
+        }
+    }
+    const list = document.getElementById('notifList');
+    if (!list) return;
+    const items = _notifData.items || [];
+    if (items.length === 0) {
+        list.innerHTML = '<div class="px-4 py-6 text-sm text-gray-500 text-center">Нет уведомлений</div>';
+        return;
+    }
+    list.innerHTML = items.map((n) => {
+        const dt = n.created_at ? new Date(n.created_at).toLocaleString('ru-RU') : '';
+        const unreadCls = n.is_read ? '' : 'bg-orange-50';
+        const name = escapeHtml(n.client_name || 'Без имени');
+        const phone = escapeHtml(n.phone || '');
+        const msg = escapeHtml(n.message || '');
+        const readBtn = n.is_read ? '' : `<button onclick="markNotifRead(${n.id})" class="text-xs text-blue-600 hover:underline whitespace-nowrap">Прочитано</button>`;
+        return `<div class="px-4 py-3 ${unreadCls} flex justify-between items-start gap-2">
+            <div class="min-w-0">
+                <div class="text-sm font-medium text-gray-800">${name} <span class="text-gray-400 font-normal">${phone}</span></div>
+                <div class="text-xs text-gray-600 mt-0.5">${msg}</div>
+                <div class="text-[11px] text-gray-400 mt-0.5">${dt}</div>
+            </div>
+            ${readBtn}
+        </div>`;
+    }).join('');
+}
+
+function toggleNotifications() {
+    const menu = document.getElementById('notifMenu');
+    if (menu) menu.classList.toggle('hidden');
+    const um = document.getElementById('userMenu');
+    if (um) um.classList.add('hidden');
+}
+
+async function markNotifRead(id) {
+    try {
+        await fetch(`${API_BASE}/api/notifications/${id}/read`, { method: 'POST', headers: getAuthHeaders() });
+        await loadNotifications();
+    } catch (e) { console.error(e); }
+}
+
+async function markAllNotificationsRead() {
+    try {
+        await fetch(`${API_BASE}/api/notifications/read-all`, { method: 'POST', headers: getAuthHeaders() });
+        await loadNotifications();
+    } catch (e) { console.error(e); }
+}

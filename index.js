@@ -52,7 +52,7 @@ class InsuranceReminderService {
       this.isRunning = true;
 
       // Обработчик очереди: разгребает message_queue каждые 60 сек
-      this.queueInterval = setInterval(() => this.processQueue(), 60 * 1000);
+      this.queueInterval = setInterval(() => this.processQueue().catch((e) => console.error('processQueue error:', e.message)), 60 * 1000);
 
       // Первичное наполнение очереди при старте (догоняем сегодняшние/просроченные)
       this.checkAndSendReminders().catch((e) => console.error('Ошибка стартового наполнения очереди:', e.message));
@@ -206,6 +206,23 @@ class InsuranceReminderService {
       await this.db.markDailyReminderSent(item.client_id);
       console.log(`   ✅ [Queue] Отправлено: ${item.client_name}`);
     } catch (error) {
+      // Номер не зарегистрирован в WhatsApp — не повторяем, пропускаем и уведомляем админа
+      if (error && error.notRegistered) {
+        try {
+          await this.db.markQueueItemSkipped(item.id, error.message);
+          await this.db.createAdminNotification({
+            type: 'unregistered_phone',
+            clientId: item.client_id,
+            clientName: item.client_name,
+            phone: item.phone,
+            message: 'Номер не зарегистрирован в WhatsApp — напоминание не отправлено, контакт пропущен.'
+          });
+          console.warn(`   ⏭️  [Queue] Пропуск (нет WhatsApp): ${item.client_name} (${item.phone}) — создано уведомление админу`);
+        } catch (e) {
+          console.error(`   ⚠️  [Queue] Ошибка при пометке skip/уведомлении: ${e.message}`);
+        }
+        return;
+      }
       const attempts = item.attempts + 1;
       await this.db.markQueueItemFailed(item.id, error.message, attempts);
       console.warn(`   ❌ [Queue] Ошибка (${item.client_name}): ${error.message} | попытка ${attempts}/${item.max_attempts}`);
