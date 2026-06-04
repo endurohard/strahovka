@@ -57,6 +57,11 @@ async function refreshStatus() {
         const res = await fetch(`${API_BASE}/api/whatsapp/status`, {
             headers: getAuthHeaders()
         });
+        if (res.status === 401) {
+            localStorage.removeItem('authToken');
+            window.location.href = '/login';
+            return;
+        }
         const data = await res.json();
 
         console.log('📊 Статус WhatsApp:', data);

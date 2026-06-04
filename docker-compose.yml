@@ -22,14 +22,16 @@ services:
 
   # Node.js приложение
   app:
-    build: .
+    build:
+      context: .
+      network: host
     container_name: strahovka-app
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     environment:
-      DB_HOST: db
+      DB_HOST: 127.0.0.1
       DB_PORT: 5432
       DB_NAME: strahovka
       DB_USER: postgres
@@ -39,6 +41,8 @@ services:
       EXCEL_FILE_PATH: /data/clients.xlsx
       API_PORT: 10804
       TZ: Europe/Moscow
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
+      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
       YANDEX_LOGIN: ${YANDEX_LOGIN:-}
       YANDEX_PASSWORD: ${YANDEX_PASSWORD:-}
       BACKUP_DIR: /app/backups
@@ -50,6 +54,7 @@ services:
       - ./database.js:/app/database.js
       - ./index.js:/app/index.js
       - ./excelReader.js:/app/excelReader.js
+      - ./whatsappPuppeteer.js:/app/whatsappPuppeteer.js
       # Директория для Excel файлов
       - ./data:/data
       # Сохранение сессии WhatsApp
@@ -72,6 +77,7 @@ services:
     security_opt:
       - seccomp=unconfined  # Необходимо для Puppeteer/Chrome
     shm_size: '2gb'  # Увеличиваем shared memory для Chrome
+    network_mode: host
 
 volumes:
   postgres_data:

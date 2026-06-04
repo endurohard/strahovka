@@ -8,3 +8,7 @@ uploads/
 .DS_Store
 wwebjs_auth/
 wwebjs_cache/
+backups/
+*.bak
+*.bak-*
+*.bak2
