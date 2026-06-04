@@ -313,6 +313,7 @@ async upsertClient(client) {
         COUNT(*) as total_clients,
         COUNT(CASE WHEN reminder_date > NOW() THEN 1 END) as upcoming_reminders,
         COUNT(CASE WHEN reminder_date <= NOW()
+                   AND expiration_date::date >= CURRENT_DATE
                    AND (last_reminder_sent IS NULL OR last_reminder_sent::date < NOW()::date)
                    AND phone_formatted IS NOT NULL AND btrim(phone_formatted) <> ''
                    AND NOT EXISTS (
@@ -392,6 +393,7 @@ async upsertClient(client) {
         c.*
       FROM clients c
       WHERE c.reminder_date::date <= CURRENT_DATE
+        AND c.expiration_date::date >= CURRENT_DATE
         AND c.phone_formatted IS NOT NULL AND btrim(c.phone_formatted) <> ''
         AND (c.last_reminder_sent IS NULL OR c.last_reminder_sent::date < CURRENT_DATE)
       ORDER BY c.name;
@@ -431,6 +433,7 @@ async upsertClient(client) {
     const result = await this.pool.query(`
       SELECT id, name FROM clients
       WHERE reminder_date::date <= CURRENT_DATE
+        AND expiration_date::date >= CURRENT_DATE
         AND (last_reminder_sent IS NULL OR last_reminder_sent::date < CURRENT_DATE)
         AND (phone_formatted IS NULL OR btrim(phone_formatted) = '')
       ORDER BY name;

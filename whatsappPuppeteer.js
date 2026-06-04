@@ -387,7 +387,9 @@ class WhatsAppPuppeteer {
     // Формируем сообщение о количестве дней
     let daysLeftMessage = '';
     if (daysLeft !== null) {
-      if (daysLeft === 0) {
+      if (daysLeft < 0) {
+        daysLeftMessage = '⚠️ Срок действия страховки уже истёк. Пожалуйста, оформите продление.';
+      } else if (daysLeft === 0) {
         daysLeftMessage = '⚠️ ВНИМАНИЕ: Страховка истекает СЕГОДНЯ!';
       } else if (daysLeft === 1) {
         daysLeftMessage = 'Осталось всего 1 день!';

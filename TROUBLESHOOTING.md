@@ -1,5 +1,31 @@
 # 🔧 Устранение неполадок
 
+## Проблема: после простоя рассылки клиенты получают напоминания по истёкшим страховкам
+
+**Симптом:** в сообщениях отрицательные дни («Осталось всего -16 дней!»),
+напоминания уходят по полисам, истёкшим недели/месяцы назад.
+
+**Причина:** выборка due-клиентов идёт по `reminder_date <= CURRENT_DATE` и
+`last_reminder_sent IS NULL`. Если отправка долго не работала (сломанная
+очередь, упавший контейнер), накапливается бэклог — после починки он
+выгребается целиком.
+
+**Решение (внедрено 04.06.2026):** во все выборки добавлен фильтр
+`expiration_date::date >= CURRENT_DATE` (`getDailyReminders`, `getStats`,
+`getDueContactsWithoutPhone`). Просроченный бэклог игнорируется навсегда.
+
+**Проверка перед перезапуском после долгого простоя:**
+
+```bash
+docker exec strahovka-db psql -U postgres -d strahovka -c \
+  "SELECT count(*) FROM clients
+   WHERE reminder_date::date <= CURRENT_DATE
+     AND last_reminder_sent IS NULL
+     AND phone_formatted IS NOT NULL AND btrim(phone_formatted) <> '';"
+```
+
+Если число большое — убедиться, что фильтр по `expiration_date` на месте.
+
 ## Проблема: Не открывается веб-интерфейс
 
 ### Проверка 1: Убедитесь что сервер запущен
