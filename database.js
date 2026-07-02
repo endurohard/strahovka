@@ -85,6 +85,9 @@ class Database {
       ALTER TABLE users
         ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 
+      ALTER TABLE clients
+        ADD COLUMN IF NOT EXISTS reminders_paused BOOLEAN NOT NULL DEFAULT false;
+
       CREATE INDEX IF NOT EXISTS idx_reminder_date ON clients(reminder_date);
       CREATE INDEX IF NOT EXISTS idx_phone ON clients(phone_formatted);
       CREATE INDEX IF NOT EXISTS idx_daily_reminder_date ON daily_reminders(reminder_date);
@@ -122,6 +125,18 @@ class Database {
       );
 
       CREATE INDEX IF NOT EXISTS idx_admin_notif_unread ON admin_notifications(is_read) WHERE is_read = false;
+
+      CREATE TABLE IF NOT EXISTS paused_phones (
+        phone VARCHAR(20) PRIMARY KEY,
+        reason TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
     `;
 
     try {
@@ -384,17 +399,18 @@ async upsertClient(client) {
    * @param {Date} date - дата для проверки
    */
   async getDailyReminders(date = new Date()) {
-    // Используем clients.reminder_date — дата там правильная (за 7 дней до окончания).
-    // daily_reminders содержит смещённые даты из-за timezone-бага при генерации.
+    // Строгие точки: ровно за 7 и за 1 день до окончания.
+    // Колонка clients.reminder_date историческая и здесь не используется.
     const query = `
       SELECT
         c.id as reminder_id,
         c.reminder_date,
         c.*
       FROM clients c
-      WHERE c.reminder_date::date <= CURRENT_DATE
-        AND c.expiration_date::date >= CURRENT_DATE
+      WHERE (c.expiration_date::date - CURRENT_DATE) IN (7, 1)
         AND c.phone_formatted IS NOT NULL AND btrim(c.phone_formatted) <> ''
+        AND c.reminders_paused = false
+        AND NOT EXISTS (SELECT 1 FROM paused_phones p WHERE p.phone = c.phone_formatted)
         AND (c.last_reminder_sent IS NULL OR c.last_reminder_sent::date < CURRENT_DATE)
       ORDER BY c.name;
     `;
@@ -425,6 +441,22 @@ async upsertClient(client) {
       console.error(`❌ Ошибка отметки отправки напоминания для клиента ${reminderId}:`, error.message);
       throw error;
     }
+  }
+
+  /**
+   * Переключить флаг паузы рассылки для клиента.
+   * @param {number} clientId
+   * @returns {{id: number, name: string, phone_formatted: string, reminders_paused: boolean}}
+   */
+  async toggleClientRemindersPause(clientId) {
+    const result = await this.pool.query(
+      `UPDATE clients
+         SET reminders_paused = NOT reminders_paused, updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, name, phone_formatted, reminders_paused;`,
+      [clientId]
+    );
+    return result.rows[0] || null;
   }
 
 
@@ -555,6 +587,74 @@ async upsertClient(client) {
       [limit, offset]
     );
     return result.rows;
+  }
+
+  // Сегодняшняя очередь рассылки с флагами пауз (по клиенту и по номеру).
+  async getQueueForToday() {
+    const result = await this.pool.query(`
+      SELECT
+        mq.id, mq.client_id, mq.phone, mq.client_name,
+        mq.status, mq.attempts, mq.max_attempts,
+        mq.scheduled_at, mq.sent_at, mq.last_attempt_at, mq.next_retry_at,
+        mq.error_message, mq.created_at,
+        c.reminders_paused, c.expiration_date,
+        EXISTS (SELECT 1 FROM paused_phones p WHERE p.phone = mq.phone) AS phone_blocklisted
+      FROM message_queue mq
+      LEFT JOIN clients c ON c.id = mq.client_id
+      WHERE mq.created_at::date = CURRENT_DATE
+      ORDER BY mq.scheduled_at ASC, mq.id ASC;
+    `);
+    return result.rows;
+  }
+
+  // ==================== PAUSED PHONES (блок-лист номеров) ====================
+
+  async listPausedPhones() {
+    const result = await this.pool.query(
+      `SELECT phone, reason, created_at FROM paused_phones ORDER BY created_at DESC;`
+    );
+    return result.rows;
+  }
+
+  async addPausedPhone(phone, reason = null) {
+    const result = await this.pool.query(
+      `INSERT INTO paused_phones (phone, reason)
+       VALUES ($1, $2)
+       ON CONFLICT (phone) DO UPDATE SET reason = EXCLUDED.reason
+       RETURNING phone, reason, created_at;`,
+      [phone, reason]
+    );
+    return result.rows[0];
+  }
+
+  async removePausedPhone(phone) {
+    const result = await this.pool.query(
+      `DELETE FROM paused_phones WHERE phone = $1 RETURNING phone;`,
+      [phone]
+    );
+    return result.rowCount > 0;
+  }
+
+  async isPhonePaused(phone) {
+    if (!phone) return false;
+    const result = await this.pool.query(
+      `SELECT 1 FROM paused_phones WHERE phone = $1 LIMIT 1;`,
+      [phone]
+    );
+    return result.rowCount > 0;
+  }
+
+  // Снять элемент с очереди (только если он ещё pending). Возвращает true, если снят.
+  async cancelQueueItem(id) {
+    const result = await this.pool.query(
+      `UPDATE message_queue
+         SET status = 'cancelled', last_attempt_at = NOW(),
+             error_message = COALESCE($2, error_message)
+       WHERE id = $1 AND status = 'pending'
+       RETURNING id;`,
+      [id, 'Отменено администратором']
+    );
+    return result.rowCount > 0;
   }
 
   async retryQueueItem(id) {
@@ -735,6 +835,29 @@ async upsertClient(client) {
     `;
     const result = await this.pool.query(query, [startDate, endDate]);
     return result.rows;
+  }
+
+  /**
+   * Получить значение настройки по ключу (или null)
+   */
+  async getSetting(key) {
+    const result = await this.pool.query(
+      `SELECT value FROM settings WHERE key = $1`,
+      [key]
+    );
+    return result.rows.length > 0 ? result.rows[0].value : null;
+  }
+
+  /**
+   * Сохранить значение настройки (upsert)
+   */
+  async setSetting(key, value) {
+    await this.pool.query(
+      `INSERT INTO settings (key, value, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [key, value]
+    );
   }
 
 }

@@ -47,12 +47,15 @@ document.addEventListener('DOMContentLoaded', () => {
     loadClients();
     checkWhatsAppStatus();
     loadNotifications();
+    loadTodayQueue();
+    loadPausedPhones();
 
     // Обновление каждые 30 секунд
     setInterval(() => {
         loadStats();
         checkWhatsAppStatus();
         loadNotifications();
+        loadTodayQueue();
     }, 30000);
 });
 
@@ -170,7 +173,9 @@ function renderClientsTable(clients) {
         today.setHours(0, 0, 0, 0);
 
         let statusBadge = '';
-        if (client.last_reminder_sent) {
+        if (client.reminders_paused) {
+            statusBadge = '<span class="px-2 py-1 bg-gray-200 text-gray-700 rounded-full text-xs">На паузе</span>';
+        } else if (client.last_reminder_sent) {
             statusBadge = '<span class="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">Отправлено</span>';
         } else if (reminderDate <= today) {
             statusBadge = '<span class="px-2 py-1 bg-orange-100 text-orange-800 rounded-full text-xs">Ожидает</span>';
@@ -182,8 +187,12 @@ function renderClientsTable(clients) {
         const safePhone = escapeHtml(client.phone_formatted || client.phone);
         const safeInsurance = escapeHtml(client.insurance) || '-';
 
+        const pauseBtn = client.reminders_paused
+            ? `<button onclick="toggleClientPause(${client.id}, ${JSON.stringify(client.name)})" class="text-yellow-600 hover:text-yellow-800 mr-3" title="Возобновить рассылку"><i class="fas fa-play"></i></button>`
+            : `<button onclick="toggleClientPause(${client.id}, ${JSON.stringify(client.name)})" class="text-gray-500 hover:text-gray-800 mr-3" title="Приостановить рассылку"><i class="fas fa-pause"></i></button>`;
+
         return `
-            <tr class="hover:bg-gray-50">
+            <tr class="hover:bg-gray-50${client.reminders_paused ? ' opacity-70' : ''}">
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${safeName}</td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${safePhone}</td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${safeInsurance}</td>
@@ -195,6 +204,7 @@ function renderClientsTable(clients) {
                     <button onclick="sendManualReminder(${client.id}, ${JSON.stringify(client.name)})" class="text-green-600 hover:text-green-900 mr-3" title="Отправить напоминание">
                         <i class="fas fa-paper-plane"></i>
                     </button>
+                    ${pauseBtn}
                     <button onclick="editClient(${client.id})" class="text-blue-600 hover:text-blue-900 mr-3" title="Редактировать">
                         <i class="fas fa-edit"></i>
                     </button>
@@ -420,6 +430,204 @@ async function deleteClient(id, name) {
 }
 
 // Отправка ручного напоминания клиенту
+async function loadPausedPhones() {
+    try {
+        const res = await fetch(`${API_BASE}/api/paused-phones`, { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        renderPausedPhones(data);
+    } catch (e) {
+        console.error('Ошибка загрузки блок-листа:', e);
+    }
+}
+
+function renderPausedPhones(data) {
+    const tbody = document.getElementById('blocklist-table');
+    if (!tbody) return;
+    if (!data.items || data.items.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" class="px-4 py-6 text-center text-gray-500">Блок-лист пуст</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = data.items.map(p => {
+        const phone = escapeHtml(p.phone);
+        const reason = escapeHtml(p.reason || '—');
+        const date = p.created_at ? new Date(p.created_at).toLocaleDateString('ru-RU') : '—';
+        return `
+            <tr>
+                <td class="px-4 py-2 whitespace-nowrap text-gray-900 font-mono">${phone}</td>
+                <td class="px-4 py-2 text-gray-700">${reason}</td>
+                <td class="px-4 py-2 whitespace-nowrap text-gray-500">${date}</td>
+                <td class="px-4 py-2 whitespace-nowrap text-right">
+                    <button onclick="removePausedPhone(${JSON.stringify(p.phone)})" class="text-red-600 hover:text-red-800" title="Убрать из блок-листа">
+                        <i class="fas fa-trash"></i> Убрать
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function addPausedPhone() {
+    const phoneEl = document.getElementById('blocklist-phone');
+    const reasonEl = document.getElementById('blocklist-reason');
+    const phone = (phoneEl.value || '').trim();
+    const reason = (reasonEl.value || '').trim();
+    if (!phone) { showNotification('Введите номер', 'error'); return; }
+    try {
+        const res = await fetch(`${API_BASE}/api/paused-phones`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone, reason })
+        });
+        const data = await res.json();
+        if (!res.ok) { showNotification(data.error || 'Не удалось добавить', 'error'); return; }
+        showNotification(`Номер ${data.phone} в блок-листе`, 'success');
+        phoneEl.value = '';
+        reasonEl.value = '';
+        loadPausedPhones();
+        loadTodayQueue();
+        loadClients();
+    } catch (e) {
+        console.error('Ошибка добавления в блок-лист:', e);
+        showNotification('Ошибка добавления', 'error');
+    }
+}
+
+async function removePausedPhone(phone) {
+    if (!confirm(`Убрать номер ${phone} из блок-листа?`)) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/paused-phones/${encodeURIComponent(phone)}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+        });
+        const data = await res.json();
+        if (!res.ok) { showNotification(data.error || 'Не удалось убрать', 'error'); return; }
+        showNotification(`Номер ${phone} убран из блок-листа`, 'success');
+        loadPausedPhones();
+        loadTodayQueue();
+        loadClients();
+    } catch (e) {
+        console.error('Ошибка удаления из блок-листа:', e);
+        showNotification('Ошибка удаления', 'error');
+    }
+}
+
+async function loadTodayQueue() {
+    try {
+        const res = await fetch(`${API_BASE}/api/queue/today`, { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        renderTodayQueue(data);
+    } catch (e) {
+        console.error('Ошибка загрузки очереди:', e);
+    }
+}
+
+function renderTodayQueue(data) {
+    const tbody = document.getElementById('queue-table');
+    const summary = document.getElementById('queue-summary');
+    if (!tbody || !summary) return;
+
+    const c = data.counts || {};
+    const parts = [];
+    if (c.pending) parts.push(`в очереди: ${c.pending}`);
+    if (c.sent) parts.push(`отправлено: ${c.sent}`);
+    if (c.skipped) parts.push(`пропущено: ${c.skipped}`);
+    if (c.cancelled) parts.push(`отменено: ${c.cancelled}`);
+    if (c.failed) parts.push(`провалено: ${c.failed}`);
+    summary.textContent = `Всего сегодня: ${data.total}${parts.length ? ' — ' + parts.join(', ') : ''}. Окно: ${data.window}`;
+
+    if (!data.items || data.items.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-6 text-center text-gray-500">Очередь пуста</td></tr>`;
+        return;
+    }
+
+    const fmtEta = (iso) => {
+        if (!iso) return '—';
+        const d = new Date(iso);
+        return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    };
+    const fmtDate = (iso) => {
+        if (!iso) return '—';
+        return new Date(iso).toLocaleDateString('ru-RU');
+    };
+    const badge = (status, paused, blocklisted) => {
+        if (blocklisted && status === 'pending') return '<span class="px-2 py-0.5 bg-red-100 text-red-800 rounded-full text-xs">Номер в блок-листе</span>';
+        if (paused && status === 'pending') return '<span class="px-2 py-0.5 bg-gray-200 text-gray-700 rounded-full text-xs">На паузе</span>';
+        const map = {
+            pending: ['bg-blue-100', 'text-blue-800', 'Ожидает'],
+            sent: ['bg-green-100', 'text-green-800', 'Отправлено'],
+            skipped: ['bg-yellow-100', 'text-yellow-800', 'Пропущено'],
+            cancelled: ['bg-gray-200', 'text-gray-700', 'Отменено'],
+            failed: ['bg-red-100', 'text-red-800', 'Провалено']
+        };
+        const [bg, fg, txt] = map[status] || ['bg-gray-100', 'text-gray-800', status];
+        return `<span class="px-2 py-0.5 ${bg} ${fg} rounded-full text-xs">${txt}</span>`;
+    };
+
+    tbody.innerHTML = data.items.map(item => {
+        const safeName = escapeHtml(item.client_name || '—');
+        const safePhone = escapeHtml(item.phone || '—');
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const exp = item.expiration_date ? new Date(item.expiration_date) : null;
+        const daysLeft = exp ? Math.ceil((exp.setHours(0,0,0,0) - today) / 86400000) : '—';
+        const cancelBtn = (item.status === 'pending')
+            ? `<button onclick="cancelQueueItem(${item.id}, ${JSON.stringify(item.client_name || '')})" class="text-red-600 hover:text-red-800" title="Убрать из очереди"><i class="fas fa-times-circle"></i> Убрать</button>`
+            : (item.error_message ? `<span class="text-xs text-gray-500" title="${escapeHtml(item.error_message)}">${escapeHtml(item.error_message).slice(0, 40)}</span>` : '');
+        const rowCls = (item.reminders_paused || item.phone_blocklisted) && item.status === 'pending' ? 'opacity-60' : '';
+        return `
+            <tr class="${rowCls}">
+                <td class="px-4 py-2 whitespace-nowrap text-gray-700">${fmtEta(item.scheduled_at)}</td>
+                <td class="px-4 py-2 whitespace-nowrap text-gray-900">${safeName}</td>
+                <td class="px-4 py-2 whitespace-nowrap text-gray-700">${safePhone}</td>
+                <td class="px-4 py-2 whitespace-nowrap text-gray-700">${fmtDate(item.expiration_date)}</td>
+                <td class="px-4 py-2 whitespace-nowrap text-gray-700">${daysLeft}</td>
+                <td class="px-4 py-2 whitespace-nowrap text-right">
+                    ${badge(item.status, item.reminders_paused, item.phone_blocklisted)}
+                    <span class="ml-2">${cancelBtn}</span>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function cancelQueueItem(id, name) {
+    if (!confirm(`Убрать клиента "${name}" из сегодняшней очереди?`)) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/queue/${id}/cancel`, { method: 'POST', headers: getAuthHeaders() });
+        const data = await res.json();
+        if (!res.ok) {
+            showNotification(data.error || 'Не удалось отменить', 'error');
+            return;
+        }
+        showNotification(`"${name}" убран из очереди`, 'success');
+        loadTodayQueue();
+    } catch (e) {
+        console.error('Ошибка отмены:', e);
+        showNotification('Ошибка отмены', 'error');
+    }
+}
+
+async function toggleClientPause(id, name) {
+    try {
+        const res = await fetch(`${API_BASE}/api/clients/${id}/toggle-pause`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            showNotification(data.error || 'Ошибка переключения паузы', 'error');
+            return;
+        }
+        const verb = data.reminders_paused ? 'приостановлены' : 'возобновлены';
+        showNotification(`Напоминания для "${name}" ${verb}`, 'success');
+        loadClients();
+    } catch (error) {
+        console.error('Ошибка переключения паузы:', error);
+        showNotification('Ошибка переключения паузы', 'error');
+    }
+}
+
 async function sendManualReminder(id, name) {
     if (!confirm(`Отправить напоминание клиенту "${name}"?`)) return;
 

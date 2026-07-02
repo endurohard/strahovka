@@ -29,6 +29,17 @@ class InsuranceReminderService {
       // Инициализация базы данных
       await this.db.initialize();
 
+      // Загрузка сохранённого шаблона сообщения (переживает рестарт)
+      try {
+        const savedTemplate = await this.db.getSetting('message_template');
+        if (savedTemplate) {
+          this.whatsapp.messageTemplate = savedTemplate;
+          console.log('✅ Загружен пользовательский шаблон сообщения из БД');
+        }
+      } catch (e) {
+        console.error('⚠️  Не удалось загрузить шаблон из БД:', e.message);
+      }
+
       // Запуск API сервера СНАЧАЛА (до WhatsApp)
       this.api = new API(this.db, this.whatsapp);
       const apiPort = process.env.API_PORT || 3000;
@@ -41,6 +52,15 @@ class InsuranceReminderService {
       }).catch((error) => {
         console.error('❌ Ошибка WhatsApp:', error.message);
       });
+
+      // Вотчдог: initialize() глотает ошибки запуска браузера (Chromium может
+      // упасть при старте после ребута хоста) — тогда isReady навсегда false и
+      // очередь молча стоит. Если браузер мёртв — переинициализируем каждые 10 мин.
+      this.whatsappReinitInProgress = false;
+      this.whatsappWatchdog = setInterval(() => {
+        this.retryWhatsAppIfDead().catch((e) =>
+          console.error('❌ WhatsApp-вотчдог: ошибка ретрая:', e.message));
+      }, 10 * 60 * 1000);
 
       // Первичная загрузка данных из Excel
       await this.importFromExcel();
@@ -60,6 +80,39 @@ class InsuranceReminderService {
     } catch (error) {
       console.error('❌ Ошибка инициализации сервиса:', error.message);
       throw error;
+    }
+  }
+
+  /**
+   * Переинициализация WhatsApp, если браузер не поднялся.
+   * Живой браузер с isReady=false не трогаем — это ожидание сканирования QR.
+   */
+  async retryWhatsAppIfDead() {
+    if (this.whatsapp.isReady || this.whatsappReinitInProgress) return;
+
+    let browserAlive = false;
+    try {
+      const b = this.whatsapp.browser;
+      browserAlive = !!(b && (typeof b.isConnected === 'function' ? b.isConnected() : b.connected));
+    } catch (e) {
+      browserAlive = false;
+    }
+    if (browserAlive) return;
+
+    this.whatsappReinitInProgress = true;
+    console.log('🔁 WhatsApp не готов, браузер мёртв — повторная инициализация...');
+    try {
+      try {
+        if (this.whatsapp.browser) await this.whatsapp.browser.close();
+      } catch (e) { /* браузер уже мёртв */ }
+      this.whatsapp.browser = null;
+      this.whatsapp.page = null;
+      await this.whatsapp.initialize();
+      if (this.whatsapp.isReady) {
+        console.log('✅ WhatsApp восстановлен после ретрая');
+      }
+    } finally {
+      this.whatsappReinitInProgress = false;
     }
   }
 
@@ -217,6 +270,32 @@ class InsuranceReminderService {
       return;
     }
     if (!item) return;
+
+    // Перепроверка: клиент/номер мог быть поставлен на паузу уже после enqueue.
+    if (item.client_id) {
+      try {
+        const r = await this.db.pool.query(
+          'SELECT reminders_paused FROM clients WHERE id = $1',
+          [item.client_id]
+        );
+        if (r.rows[0] && r.rows[0].reminders_paused) {
+          await this.db.markQueueItemSkipped(item.id, 'Клиент на паузе');
+          console.log(`   ⏸  [Queue] Пропуск (клиент на паузе): ${item.client_name}`);
+          return;
+        }
+      } catch (e) {
+        console.error(`   ⚠️  [Queue] Не удалось перечитать флаг паузы клиента (${item.client_name}): ${e.message}`);
+      }
+    }
+    try {
+      if (await this.db.isPhonePaused(item.phone)) {
+        await this.db.markQueueItemSkipped(item.id, 'Номер в блок-листе');
+        console.log(`   ⏸  [Queue] Пропуск (номер в блок-листе): ${item.client_name} (${item.phone})`);
+        return;
+      }
+    } catch (e) {
+      console.error(`   ⚠️  [Queue] Не удалось проверить блок-лист номеров: ${e.message}`);
+    }
 
     console.log(`\n📤 [Queue] Отправка: ${item.client_name} (${item.phone}), попытка #${item.attempts + 1}`);
     try {

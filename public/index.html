@@ -158,6 +158,73 @@
             </div>
         </div>
 
+        <!-- Очередь сегодня -->
+        <div class="bg-white rounded-lg shadow p-6 mb-8">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h2 class="text-lg font-bold text-gray-800">
+                        <i class="fas fa-list-ol text-indigo-600 mr-2"></i>Очередь на сегодня
+                    </h2>
+                    <p id="queue-summary" class="text-sm text-gray-500 mt-1">Загрузка…</p>
+                </div>
+                <button onclick="loadTodayQueue()" class="px-3 py-1.5 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition text-sm">
+                    <i class="fas fa-sync mr-1"></i> Обновить
+                </button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
+                        <tr>
+                            <th class="px-4 py-2 text-left">ETA (МСК)</th>
+                            <th class="px-4 py-2 text-left">Имя</th>
+                            <th class="px-4 py-2 text-left">Телефон</th>
+                            <th class="px-4 py-2 text-left">Окончание</th>
+                            <th class="px-4 py-2 text-left">Дней</th>
+                            <th class="px-4 py-2 text-right">Действие</th>
+                        </tr>
+                    </thead>
+                    <tbody id="queue-table" class="divide-y divide-gray-100"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Блок-лист номеров -->
+        <div class="bg-white rounded-lg shadow p-6 mb-8">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h2 class="text-lg font-bold text-gray-800">
+                        <i class="fas fa-ban text-red-600 mr-2"></i>Блок-лист номеров
+                    </h2>
+                    <p id="blocklist-summary" class="text-sm text-gray-500 mt-1">Номера из этого списка не получают напоминания (и будущие импорты этих номеров тоже).</p>
+                </div>
+                <button onclick="loadPausedPhones()" class="px-3 py-1.5 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition text-sm">
+                    <i class="fas fa-sync mr-1"></i> Обновить
+                </button>
+            </div>
+            <div class="flex flex-wrap gap-2 mb-4">
+                <input type="text" id="blocklist-phone" placeholder="Телефон (например +79281234567 или 8928...)"
+                       class="flex-1 min-w-[220px] px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none">
+                <input type="text" id="blocklist-reason" placeholder="Причина (опционально)"
+                       class="flex-1 min-w-[220px] px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none">
+                <button onclick="addPausedPhone()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition">
+                    <i class="fas fa-plus mr-1"></i> Добавить
+                </button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
+                        <tr>
+                            <th class="px-4 py-2 text-left">Телефон</th>
+                            <th class="px-4 py-2 text-left">Причина</th>
+                            <th class="px-4 py-2 text-left">Добавлен</th>
+                            <th class="px-4 py-2 text-right">Действие</th>
+                        </tr>
+                    </thead>
+                    <tbody id="blocklist-table" class="divide-y divide-gray-100"></tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Поиск и фильтры -->
         <div class="bg-white rounded-lg shadow p-6 mb-8">
             <div class="flex flex-wrap gap-4">

@@ -125,6 +125,12 @@ class API {
     this.app.put('/api/clients/:id', this.requireAuth.bind(this), this.updateClient.bind(this));
     this.app.delete('/api/clients/:id', this.requireAuth.bind(this), this.deleteClient.bind(this));
     this.app.post('/api/clients/:id/remind', this.requireAuth.bind(this), this.sendManualReminder.bind(this));
+    this.app.post('/api/clients/:id/toggle-pause', this.requireAuth.bind(this), this.toggleClientPause.bind(this));
+    this.app.get('/api/queue/today', this.requireAuth.bind(this), this.getTodayQueue.bind(this));
+    this.app.post('/api/queue/:id/cancel', this.requireAuth.bind(this), this.cancelQueueItem.bind(this));
+    this.app.get('/api/paused-phones', this.requireAuth.bind(this), this.listPausedPhones.bind(this));
+    this.app.post('/api/paused-phones', this.requireAuth.bind(this), this.addPausedPhone.bind(this));
+    this.app.delete('/api/paused-phones/:phone', this.requireAuth.bind(this), this.removePausedPhone.bind(this));
     this.app.post('/api/import', this.requireAuth.bind(this), this.importExcel.bind(this));
     this.app.post('/api/send-reminders', this.requireAuth.bind(this), this.sendReminders.bind(this));
     this.app.post('/api/send-test', this.requireAuth.bind(this), this.sendTest.bind(this));
@@ -536,6 +542,91 @@ class API {
   }
 
   // Отправить ручное напоминание одному клиенту
+  // ===== Блок-лист номеров =====
+
+  async listPausedPhones(req, res) {
+    try {
+      const rows = await this.db.listPausedPhones();
+      res.json({ total: rows.length, items: rows });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  }
+
+  async addPausedPhone(req, res) {
+    try {
+      const { phone, reason } = req.body || {};
+      const normalized = this.normalizePhone(phone);
+      if (!normalized || !/^\+?\d{10,15}$/.test(normalized)) {
+        return res.status(400).json({ error: 'Некорректный номер телефона' });
+      }
+      const row = await this.db.addPausedPhone(normalized, reason || null);
+      res.json(row);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  }
+
+  async removePausedPhone(req, res) {
+    try {
+      const phone = decodeURIComponent(req.params.phone || '');
+      const ok = await this.db.removePausedPhone(phone);
+      if (!ok) return res.status(404).json({ error: 'Номер не найден в блок-листе' });
+      res.json({ phone, removed: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  }
+
+  // Сегодняшняя очередь рассылки (для админ-панели)
+  async getTodayQueue(req, res) {
+    try {
+      const rows = await this.db.getQueueForToday();
+      const counts = rows.reduce((acc, r) => {
+        acc[r.status] = (acc[r.status] || 0) + 1;
+        return acc;
+      }, {});
+      res.json({
+        total: rows.length,
+        counts,
+        window: '10:00–20:00 МСК',
+        items: rows
+      });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  }
+
+  // Снять элемент с очереди (только если он pending)
+  async cancelQueueItem(req, res) {
+    try {
+      const cancelled = await this.db.cancelQueueItem(req.params.id);
+      if (!cancelled) {
+        return res.status(409).json({ error: 'Элемент уже отправлен, пропущен или отменён' });
+      }
+      res.json({ id: Number(req.params.id), status: 'cancelled' });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  }
+
+  // Переключить паузу рассылки для клиента
+  async toggleClientPause(req, res) {
+    try {
+      const { id } = req.params;
+      const updated = await this.db.toggleClientRemindersPause(id);
+      if (!updated) return res.status(404).json({ error: 'Клиент не найден' });
+      res.json({
+        id: updated.id,
+        name: updated.name,
+        phone: updated.phone_formatted,
+        reminders_paused: updated.reminders_paused
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
   async sendManualReminder(req, res) {
     try {
       const { id } = req.params;
@@ -971,7 +1062,8 @@ class API {
       }
 
       this.whatsapp.messageTemplate = template;
-      console.log('✅ Шаблон сообщения обновлен');
+      await this.db.setSetting('message_template', template);
+      console.log('✅ Шаблон сообщения обновлен и сохранён в БД');
 
       res.json({
         message: 'Шаблон сообщения успешно сохранен',
